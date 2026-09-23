@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Shared version catalog (pnpm official "Catalogs" feature).
+# Each entry is the single source of truth for that dependency's range:
+# upgrading means editing one line here instead of every package.json.
+# Usage: "typescript": "catalog:"
+# Add entries (react, vite, vitest, …) when the first app/package needs them.
+catalog:
+  typescript: ^6.0.0

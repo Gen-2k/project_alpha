@@ -1,0 +1,13 @@
+{
+  // Lets type-aware linting resolve these JS preset files via
+  // projectService. allowJs includes them in the program; checkJs stays
+  // off so tsc reports no errors for them.
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true
+  },
+  "include": ["*.js"],
+  "exclude": ["node_modules", "dist"]
+}

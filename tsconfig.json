@@ -1,0 +1,16 @@
+{
+  // Editor-only config. Each app/package typechecks independently
+  // (`turbo run typecheck`); never run `tsc -b` at root.
+  // Project References are deliberately NOT used: Turbo already orders
+  // builds via `dependsOn: ["^build"]`. Revisit past ~15 packages.
+  // allowJs covers the root tooling configs so type-aware ESLint
+  // (projectService) resolves them; checkJs stays off.
+  "extends": "./packages/typescript-config/base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true
+  },
+  "include": ["apps/**/*", "packages/**/*", "eslint.config.js", "commitlint.config.js"],
+  "exclude": ["**/node_modules", "**/dist", "**/coverage", "**/.turbo"]
+}

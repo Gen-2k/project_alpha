@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # Least privilege: checkout + cache only need read access.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: enables Turbo affected filtering later
+          # (`turbo run check --filter=[HEAD^1...HEAD]` on PRs).
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Single source of truth: .nvmrc (matches engines + local dev).
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # Reproducible install: fails if pnpm-lock.yaml is stale.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      # Root tooling configs (single flat ESLint config lives at root).
+      - run: pnpm lint:root
+      - run: pnpm typecheck
+      # `test` / `build` are pipeline contracts: they no-op until the first
+      # app/package defines those scripts, then run dependency-aware + cached.
+      - run: pnpm test
+      - run: pnpm build
