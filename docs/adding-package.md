@@ -53,6 +53,7 @@ not in `packages/`. Promote it when the second consumer appears.
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rimraf dist coverage"
   },
   "devDependencies": {

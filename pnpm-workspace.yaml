@@ -2,10 +2,38 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Build scripts: scarf is install-time telemetry from @nestjs/swagger's
+# dependency tree — explicitly NOT run (the package works without it).
+allowBuilds:
+  "@scarf/scarf": false
+
 # Shared version catalog (pnpm official "Catalogs" feature).
 # Each entry is the single source of truth for that dependency's range:
 # upgrading means editing one line here instead of every package.json.
 # Usage: "typescript": "catalog:"
-# Add entries (react, vite, vitest, …) when the first app/package needs them.
+# Add entries (react, drizzle, …) when the first app/package needs them.
 catalog:
   typescript: ^6.0.0
+  # NestJS platform (single range for all @nestjs/* keeps majors in lockstep)
+  "@nestjs/common": ^12.0.1
+  "@nestjs/core": ^12.0.1
+  "@nestjs/platform-express": ^12.0.1
+  "@nestjs/cli": ^12.0.0
+  "@nestjs/schematics": ^12.0.0
+  "@nestjs/testing": ^12.0.1
+  "@nestjs/config": ^12.0.1
+  "@nestjs/swagger": ^12.0.2
+  zod: ^4.6.5
+  reflect-metadata: ^0.2.2
+  rxjs: ^7.8.1
+  supertest: ^7.0.0
+  "@types/express": ^5.0.0
+  "@types/node": ^24.0.0
+  "@types/supertest": ^7.0.0
+  vitest: ^4.1.2
+  "@vitest/coverage-v8": ^4.1.2
+
+# pnpm recorded this exception automatically: @nestjs/swagger@12.0.2 was
+# newer than minimumReleaseAge when first installed. Revisit on upgrades.
+minimumReleaseAgeExclude:
+  - "@nestjs/swagger@12.0.2"

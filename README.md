@@ -1,8 +1,9 @@
 # Project Alpha — monorepo foundation
 
 A minimal, production-ready TypeScript monorepo foundation: package manager,
-task orchestration, shared configs, lint/format, git hooks and CI — ready
-for the first app. No apps exist yet by design.
+task orchestration, shared configs, lint/format, git hooks and CI — plus
+the first app, `apps/server` (NestJS). Backend patterns established there
+carry over to `apps/worker` and future services.
 
 ## Why a monorepo
 
@@ -13,10 +14,12 @@ in a single PR; Turbo rebuilds only what the dependency graph requires.
 ## Structure
 
 ```text
-apps/                  # deployable units (empty — see docs/adding-app.md)
+apps/
+  server/              # NestJS API (see apps/server, docs/adding-app.md)
 packages/
   typescript-config/   # shared tsconfigs: base / react / node
   eslint-config/       # shared ESLint presets: base / react / node
+  validation/          # shared Zod schemas (server + future frontend forms)
 docs/
   adding-app.md        # how to add apps/web, apps/api, …
   adding-package.md    # how to add packages/ui, packages/database, …
@@ -48,16 +51,17 @@ Second runs are fully cached by Turbo (expect `FULL TURBO` in ~100ms).
 
 ## Commands
 
-| Command               | What it does                                                     |
-| --------------------- | ---------------------------------------------------------------- |
-| `pnpm dev`            | Run all `dev` scripts (persistent, uncached)                     |
-| `pnpm build`          | Dependency-aware builds (`^build` first), cached outputs         |
-| `pnpm lint`           | Graph-aware ESLint (per-package, cached); autofix: `lint:fix`    |
-| `pnpm lint:root`      | Lint root tooling configs (`eslint.config.js`, …)                |
-| `pnpm typecheck`      | Per-package `tsc --noEmit` (source-level, needs no build)        |
-| `pnpm test`           | Per-package `vitest run`, cached                                 |
-| `pnpm check`          | `format:check` + graph `lint/typecheck/test/build` + `lint:root` |
-| `pnpm format(:check)` | Prettier — the single owner of formatting                        |
+| Command               | What it does                                                        |
+| --------------------- | ------------------------------------------------------------------- |
+| `pnpm dev`            | Run all `dev` scripts (persistent, uncached)                        |
+| `pnpm build`          | Dependency-aware builds (`^build` first), cached outputs            |
+| `pnpm lint`           | Graph-aware ESLint (per-package, cached); autofix: `lint:fix`       |
+| `pnpm lint:root`      | Lint root tooling configs (`eslint.config.js`, …)                   |
+| `pnpm typecheck`      | Per-package `tsc --noEmit` (source-level, needs no build)           |
+| `pnpm test`           | Per-package `vitest run`, cached                                    |
+| `pnpm test:e2e`       | Full-stack e2e suites, cached; also part of `check`                 |
+| `pnpm check`          | `format:check` + `lint/typecheck/test/test:e2e/build` + `lint:root` |
+| `pnpm format(:check)` | Prettier — the single owner of formatting                           |
 
 Filters: `pnpm --filter web dev`, `turbo run build --filter=@repo/ui`.
 

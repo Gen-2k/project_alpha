@@ -23,7 +23,20 @@ export default {
     "scope-enum": [
       1,
       "always",
-      ["web", "admin", "api", "worker", "ui", "utils", "types", "config", "repo", "ci"],
+      [
+        "web",
+        "admin",
+        "api",
+        "server",
+        "worker",
+        "ui",
+        "utils",
+        "types",
+        "validation",
+        "config",
+        "repo",
+        "ci",
+      ],
     ],
   },
 };

@@ -1,0 +1,8 @@
+{
+  // Runtime-agnostic on purpose (no DOM/Node globals): these schemas must
+  // typecheck for browser forms and Node APIs alike. Emitting uses the
+  // separate tsconfig.build.json (clean rootDir for dist output).
+  "extends": "@repo/typescript-config/base.json",
+  "include": ["src", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

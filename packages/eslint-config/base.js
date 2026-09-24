@@ -34,6 +34,9 @@ export default defineConfig(
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/await-thenable": "error",
       "@typescript-eslint/no-non-null-assertion": "warn",
+      // Decorated empty classes are a legit framework pattern (Nest
+      // `@Module()` classes carry config in the decorator, not members).
+      "@typescript-eslint/no-extraneous-class": ["error", { allowWithDecorator: true }],
       // Returning void from a void-expected callback (`onClick={() => set(x)}`,
       // `.then(() => log())`) is idiomatic and type-safe by design — flagging
       // it is pure friction, so this stylistic rule stays off.

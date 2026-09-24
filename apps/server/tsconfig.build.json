@@ -1,0 +1,13 @@
+{
+  // Emit config: clean rootDir so `tsc` never leaks tooling configs or
+  // tests into dist. Main config stays inclusive for lint/typecheck.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": false,
+    "incremental": false
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+}

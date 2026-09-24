@@ -72,23 +72,19 @@ ESLint does **not** enforce package boundaries here. Two better tools:
 Neither is installed with zero imports to check — that's restraint,
 not a gap (see `docs/adding-package.md`).
 
-## Testing layer (future)
+## Testing layer
 
-When Vitest lands, add one block — no rewrite needed:
+Unit specs (`*.spec.ts`) run under full strictness — a unit tests typed
+code, so `any` leaking there is a real bug.
 
-```js
-// eslint.config.js
-{
-  files: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"],
-  // plugins: { vitest: vitestPlugin },
-  // rules: { ...vitestPlugin.configs.recommended.rules },
-}
-```
-
-Use `eslint-plugin-vitest` (flat-compatible) for test hygiene
-(`no-disabled-tests`, `expect-expect`) and keep type-aware base rules
-on — floating promises in tests are still bugs. Playwright e2e specs
-get the same treatment with `eslint-plugin-playwright`.
+E2E specs (`*.e2e-spec.ts`) get one scoped carve-out in `eslint.config.js`:
+the `no-unsafe-*` family is off because e2e asserts over untyped HTTP
+boundaries by nature (Supertest bodies, Nest's `any`-typed
+`getHttpServer()`). Everything else — floating/misused promises, unused
+vars, import order — stays on. Unit-test hygiene plugins
+(`eslint-plugin-vitest`: `no-disabled-tests`, `expect-expect`) and
+`eslint-plugin-playwright` for future browser e2e remain documented
+next steps, not installed.
 
 ## Security boundary
 

@@ -1,0 +1,22 @@
+{
+  // NestJS additions on top of the shared Node preset:
+  // - experimentalDecorators + emitDecoratorMetadata: required for Nest's
+  //   dependency injection (constructor param types are read from metadata).
+  // - strictPropertyInitialization: false: DTOs declare bare properties
+  //   (`title: string`) populated by the framework, not initializers.
+  // - esModuleInterop: explicit true (TS 6+ keeps it always on; `false`
+  //   was removed in TS 7) to match the official Nest starter.
+  // - types: ["node"] only — tests import explicitly from "vitest"
+  //   (repo convention), so no vitest/globals types are needed.
+  "extends": "@repo/typescript-config/node.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src", "test", "vitest.config.ts", "vitest.config.e2e.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -15,11 +15,16 @@ const REACT_FILES = [
   "packages/ui/**/*.{ts,tsx}",
 ];
 
-// Add future backend apps alongside `api` here (e.g. "apps/worker/**"),
+// Add future backend apps alongside `server` here (e.g. "apps/worker/**"),
 // plus future server-only packages (e.g. "packages/database/**").
 // Isomorphic packages (validation, api-client) and pure types stay on
 // base rules only — see the comment at the top of this file.
-const NODE_FILES = ["apps/api/**/*.ts", "apps/worker/**/*.ts", "packages/database/**/*.ts"];
+const NODE_FILES = [
+  "apps/server/**/*.ts",
+  "apps/api/**/*.ts",
+  "apps/worker/**/*.ts",
+  "packages/database/**/*.ts",
+];
 
 export default [
   {
@@ -36,4 +41,18 @@ export default [
   ...base,
   ...react.map((c) => ({ ...c, files: REACT_FILES })),
   ...node.map((c) => ({ ...c, files: NODE_FILES })),
+  // E2E specs assert over untyped HTTP boundaries (Supertest bodies,
+  // `getHttpServer()` returns `any` by Nest's own typing) — the no-unsafe-*
+  // family would flag every assertion without catching real bugs.
+  // Async safety (floating/misused promises) and hygiene stay fully on.
+  {
+    files: ["**/*.e2e-spec.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+    },
+  },
 ];

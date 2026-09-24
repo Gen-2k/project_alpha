@@ -11,6 +11,9 @@
     "test": {
       "env": ["CI", "NODE_ENV"]
     },
+    "test:e2e": {
+      "env": ["CI", "NODE_ENV", "PORT"]
+    },
     "test:watch": {
       "cache": false,
       "persistent": true
