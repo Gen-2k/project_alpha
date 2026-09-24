@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./echo": "./src/echo.ts"
+    "./auth": "./src/auth.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -12,6 +12,7 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
     "clean": "rimraf dist coverage"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

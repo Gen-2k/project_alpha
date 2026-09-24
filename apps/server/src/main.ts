@@ -9,12 +9,18 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>("PORT") ?? 3001;
 
+  app.enableCors();
+  app.setGlobalPrefix("api/v1", {
+    exclude: ["health", "health/(.*)"],
+  });
+
   const document = SwaggerModule.createDocument(
     app,
     new DocumentBuilder()
       .setTitle("Server")
       .setDescription("Project Alpha API")
-      .setVersion("0.0.0")
+      .setVersion("0.1.0")
+      .addBearerAuth()
       .build(),
   );
   SwaggerModule.setup("docs", app, document);

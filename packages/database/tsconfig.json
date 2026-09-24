@@ -1,0 +1,8 @@
+{
+  // Server-side package (PostgreSQL only): NodeNext resolution, Node types.
+  // Runtime code here must stay erasable-syntax plain TS — workspace
+  // consumers resolve these sources directly (see root AGENTS.md).
+  "extends": "@repo/typescript-config/node.json",
+  "include": ["src", "drizzle.config.ts"],
+  "exclude": ["node_modules", "dist", "drizzle"]
+}

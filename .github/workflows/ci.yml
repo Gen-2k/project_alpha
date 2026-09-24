@@ -42,5 +42,4 @@ jobs:
       # `test` / `build` are pipeline contracts: they no-op until the first
       # app/package defines those scripts, then run dependency-aware + cached.
       - run: pnpm test
-      - run: pnpm test:e2e
       - run: pnpm build

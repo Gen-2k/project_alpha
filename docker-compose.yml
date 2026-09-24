@@ -1,0 +1,30 @@
+# Shared PostgreSQL for local development. Every service connects with:
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/project_alpha
+# (see apps/server/.env.example). pgAdmin: host localhost:5432,
+# user postgres, password postgres. Production uses managed Postgres,
+# never this file.
+name: project-alpha
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: project-alpha-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: project_alpha
+    ports:
+      # Host 5433: this machine already runs a native PostgreSQL on 5432.
+      # DATABASE_URL matches below (see apps/server/.env.example).
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d project_alpha"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:

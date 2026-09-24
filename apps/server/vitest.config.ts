@@ -8,5 +8,16 @@ export default defineConfig({
     environment: "node",
     root: "./",
     include: ["src/**/*.spec.ts"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.spec.ts", "src/**/*.module.ts", "src/main.ts"],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
+    },
   },
 });
