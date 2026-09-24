@@ -1,10 +1,13 @@
+import { uuidv7 } from "@repo/database/uuid";
 import { pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 
 // Users of the platform. Passwords are NEVER stored here — only bcrypt
 // hashes (see apps/server AuthService). Reads going outward must use
 // explicit column lists (safeUserColumns in UsersService), never select *.
 export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
+  id: uuid("id")
+    .primaryKey()
+    .$defaultFn(() => uuidv7()),
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -16,7 +19,9 @@ export const users = pgTable("users", {
 // Rotation deletes the old row on every refresh; logout deletes on demand;
 // reuse of a rotated token revokes all of the user's rows (theft response).
 export const refreshTokens = pgTable("refresh_tokens", {
-  id: uuid("id").defaultRandom().primaryKey(),
+  id: uuid("id")
+    .primaryKey()
+    .$defaultFn(() => uuidv7()),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -32,3 +37,5 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 export type NewRefreshToken = typeof refreshTokens.$inferInsert;
+
+export { getUuidv7Timestamp, uuidv7 } from "@repo/database/uuid";

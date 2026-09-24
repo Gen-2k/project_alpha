@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
+    "test:ui": "vitest --ui",
     "clean": "rimraf dist coverage"
   },
   "dependencies": {
@@ -47,6 +48,7 @@
     "@types/node": "catalog:",
     "@types/supertest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "@vitest/ui": "catalog:",
     "supertest": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -8,6 +8,10 @@ export default defineConfig({
     environment: "node",
     root: "./",
     include: ["src/**/*.spec.ts"],
+    api: {
+      port: 3100,
+      host: "127.0.0.1",
+    },
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],

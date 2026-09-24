@@ -13,7 +13,7 @@ async function bootstrap() {
   app.use(helmet({ contentSecurityPolicy: false }));
   app.enableCors();
   app.setGlobalPrefix("api/v1", {
-    exclude: ["health", "health/(.*)"],
+    exclude: ["health", "health/{*path}"],
   });
 
   const document = SwaggerModule.createDocument(
