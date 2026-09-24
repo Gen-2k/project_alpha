@@ -1,6 +1,7 @@
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import helmet from "helmet";
 
 import { AppModule } from "./app.module.js";
 
@@ -9,6 +10,7 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>("PORT") ?? 3001;
 
+  app.use(helmet({ contentSecurityPolicy: false }));
   app.enableCors();
   app.setGlobalPrefix("api/v1", {
     exclude: ["health", "health/(.*)"],

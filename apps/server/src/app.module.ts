@@ -1,7 +1,11 @@
+import type { MiddlewareConsumer, NestModule } from "@nestjs/common";
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { APP_FILTER } from "@nestjs/core";
 
 import { AuthModule } from "./auth/auth.module.js";
+import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter.js";
+import { RequestIdMiddleware } from "./common/middleware/request-id.middleware.js";
 import { validateEnv } from "./config/env.validation.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { HealthModule } from "./health/health.module.js";
@@ -17,5 +21,15 @@ import { UsersModule } from "./users/users.module.js";
     AuthModule,
     HealthModule,
   ],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestIdMiddleware).forRoutes("*");
+  }
+}
