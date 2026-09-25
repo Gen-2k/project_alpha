@@ -50,8 +50,11 @@ describe("createLoggerConfig", () => {
     const autoLogging = opts.autoLogging as { ignore: (req: IncomingMessage) => boolean };
 
     expect(autoLogging.ignore({ url: "/health" } as IncomingMessage)).toBe(true);
+    expect(autoLogging.ignore({ url: "/health/" } as IncomingMessage)).toBe(true);
     expect(autoLogging.ignore({ url: "/health/live" } as IncomingMessage)).toBe(true);
-    expect(autoLogging.ignore({ url: "/health/ready" } as IncomingMessage)).toBe(true);
+    expect(autoLogging.ignore({ url: "/health/ready?probe=1" } as IncomingMessage)).toBe(true);
+    expect(autoLogging.ignore({ url: "/health/ready/" } as IncomingMessage)).toBe(true);
+    expect(autoLogging.ignore({ url: undefined } as unknown as IncomingMessage)).toBe(false);
     expect(autoLogging.ignore({ url: "/api/v1/auth/login" } as IncomingMessage)).toBe(false);
   });
 
@@ -113,5 +116,60 @@ describe("createLoggerConfig", () => {
     expect(customLogLevel(req, { statusCode: 200 } as ServerResponse, new Error("Crash"))).toBe(
       "error",
     );
+  });
+
+  it("provides concise serializers for req and res to prevent header bloat", () => {
+    const config = mockConfig({ NODE_ENV: "production" });
+    const params = createLoggerConfig(config);
+    const opts = params.pinoHttp as Record<string, unknown>;
+    const serializers = opts.serializers as {
+      req: (req: unknown) => Record<string, unknown>;
+      res: (res: unknown) => Record<string, unknown>;
+    };
+
+    const mockReq = {
+      id: "test-id",
+      method: "GET",
+      url: "/api/v1/users/me",
+      query: { filter: "active" },
+      headers: { "x-secret-header": "value", host: "localhost" },
+    };
+    const serializedReq = serializers.req(mockReq);
+    expect(serializedReq).toEqual({
+      id: "test-id",
+      method: "GET",
+      url: "/api/v1/users/me",
+      query: { filter: "active" },
+    });
+    // Headers should NOT be included in serialized output
+    expect(serializedReq).not.toHaveProperty("headers");
+
+    const mockRes = {
+      statusCode: 200,
+      headers: { "strict-transport-security": "max-age=31536000" },
+    };
+    const serializedRes = serializers.res(mockRes);
+    expect(serializedRes).toEqual({ statusCode: 200 });
+    expect(serializedRes).not.toHaveProperty("headers");
+  });
+
+  it("formats custom messages with request ID and response time", () => {
+    const config = mockConfig({ NODE_ENV: "development" });
+    const params = createLoggerConfig(config);
+    const opts = params.pinoHttp as Record<string, unknown>;
+    const customSuccessMessage = opts.customSuccessMessage as (
+      req: IncomingMessage & { id?: string },
+      res: ServerResponse,
+      time: number,
+    ) => string;
+
+    const msg = customSuccessMessage(
+      { method: "POST", url: "/api/v1/auth/login", id: "trace-xyz" } as IncomingMessage & {
+        id?: string;
+      },
+      { statusCode: 200 } as ServerResponse,
+      45.6,
+    );
+    expect(msg).toBe("POST /api/v1/auth/login 200 - 46ms [reqId=trace-xyz]");
   });
 });

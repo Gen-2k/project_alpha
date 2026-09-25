@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { ConfigService } from "@nestjs/config";
 import type { Params } from "nestjs-pino";
@@ -24,13 +25,16 @@ export function createLoggerConfig(config: ConfigService): Params {
                 colorize: true,
                 singleLine: true,
                 translateTime: "SYS:yyyy-mm-dd HH:MM:ss.l",
-                ignore: "pid,hostname",
+                ignore: "pid,hostname,req,res",
               },
             },
       autoLogging: {
         ignore: (req) => {
-          const url = req.url ?? "";
-          return url === "/health" || url === "/health/live" || url === "/health/ready";
+          const rawPath = (req.url ?? "").split("?")[0]?.replace(/\/+$/, "");
+          const pathname = rawPath && rawPath.length > 0 ? rawPath : "/";
+          return (
+            pathname === "/health" || pathname === "/health/live" || pathname === "/health/ready"
+          );
         },
       },
       genReqId: (req, res) => {
@@ -38,8 +42,20 @@ export function createLoggerConfig(config: ConfigService): Params {
         const incomingId =
           typeof rawHeader === "string" && rawHeader.trim() !== "" ? rawHeader.trim() : undefined;
         const id = incomingId ?? randomUUID();
+        req.headers[REQUEST_ID_HEADER] = id;
         res.setHeader(REQUEST_ID_HEADER, id);
         return id;
+      },
+      serializers: {
+        req: (req: IncomingMessage & { id?: unknown; query?: unknown }) => ({
+          id: req.id,
+          method: req.method,
+          url: req.url,
+          query: req.query,
+        }),
+        res: (res: ServerResponse) => ({
+          statusCode: res.statusCode,
+        }),
       },
       redact: {
         paths: [
@@ -57,10 +73,12 @@ export function createLoggerConfig(config: ConfigService): Params {
         return "info";
       },
       customSuccessMessage: (req, res, responseTime) => {
-        return `${req.method ?? "UNKNOWN"} ${req.url ?? "/"} ${String(res.statusCode)} - ${String(Math.round(responseTime))}ms`;
+        const id = typeof req.id === "string" ? ` [reqId=${req.id}]` : "";
+        return `${req.method ?? "UNKNOWN"} ${req.url ?? "/"} ${String(res.statusCode)} - ${String(Math.round(responseTime))}ms${id}`;
       },
       customErrorMessage: (req, res, err) => {
-        return `${req.method ?? "UNKNOWN"} ${req.url ?? "/"} ${String(res.statusCode)} - ${err.message}`;
+        const id = typeof req.id === "string" ? ` [reqId=${req.id}]` : "";
+        return `${req.method ?? "UNKNOWN"} ${req.url ?? "/"} ${String(res.statusCode)} - ${err.message}${id}`;
       },
     },
   };
