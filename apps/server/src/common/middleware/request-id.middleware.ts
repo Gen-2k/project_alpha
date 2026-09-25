@@ -6,9 +6,7 @@ import type { NextFunction, Request, Response } from "express";
 
 export const REQUEST_ID_HEADER = "x-request-id";
 
-export interface RequestWithId extends Request {
-  id?: string;
-}
+export type RequestWithId = Request;
 
 @Injectable()
 export class RequestIdMiddleware implements NestMiddleware {

@@ -3,6 +3,8 @@ import { z } from "zod";
 // Validated once at boot by ConfigModule (fail fast on bad env).
 // PORT uses coerce: env vars arrive as strings, the app needs a number.
 const envSchema = z.object({
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
   DATABASE_URL: z.url(),

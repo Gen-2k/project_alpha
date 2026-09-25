@@ -10,6 +10,8 @@ describe("validateEnv", () => {
 
   it("should validate and apply defaults for optional fields", () => {
     const env = validateEnv(validBase);
+    expect(env.NODE_ENV).toBe("development");
+    expect(env.LOG_LEVEL).toBe("info");
     expect(env.PORT).toBe(3001);
     expect(env.CORS_ORIGIN).toBe("http://localhost:3000");
     expect(env.JWT_ACCESS_EXPIRES_IN).toBe("15m");
@@ -21,11 +23,15 @@ describe("validateEnv", () => {
   it("should accept custom valid values", () => {
     const env = validateEnv({
       ...validBase,
+      NODE_ENV: "production",
+      LOG_LEVEL: "warn",
       PORT: "8080",
       CORS_ORIGIN: "https://example.com,https://app.example.com",
       JWT_ACCESS_EXPIRES_IN: "30m",
       JWT_REFRESH_EXPIRES_IN: "14d",
     });
+    expect(env.NODE_ENV).toBe("production");
+    expect(env.LOG_LEVEL).toBe("warn");
     expect(env.PORT).toBe(8080);
     expect(env.CORS_ORIGIN).toBe("https://example.com,https://app.example.com");
     expect(env.JWT_ACCESS_EXPIRES_IN).toBe("30m");
@@ -64,6 +70,24 @@ describe("validateEnv", () => {
       validateEnv({
         ...validBase,
         JWT_ACCESS_EXPIRES_IN: "15hours",
+      }),
+    ).toThrow("Invalid environment variables");
+  });
+
+  it("should throw if LOG_LEVEL is invalid", () => {
+    expect(() =>
+      validateEnv({
+        ...validBase,
+        LOG_LEVEL: "verbose_nonsense",
+      }),
+    ).toThrow("Invalid environment variables");
+  });
+
+  it("should throw if NODE_ENV is invalid", () => {
+    expect(() =>
+      validateEnv({
+        ...validBase,
+        NODE_ENV: "staging_invalid",
       }),
     ).toThrow("Invalid environment variables");
   });

@@ -119,7 +119,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     } else {
       const err = exception instanceof Error ? exception : new Error(String(exception));
-      const reqId = request.id ?? "unknown";
+      const reqId = typeof request.id === "string" ? request.id : "unknown";
       this.logger.error(
         `[${reqId}] Unhandled exception on ${request.method} ${request.url}: ${err.message}`,
         err.stack,
@@ -128,7 +128,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const rawHeader = request.headers[REQUEST_ID_HEADER_NAME];
     const headerRequestId = typeof rawHeader === "string" ? rawHeader : undefined;
-    const requestId = request.id ?? headerRequestId;
+    const requestId = typeof request.id === "string" ? request.id : headerRequestId;
 
     const body: ApiErrorResponse = {
       statusCode: status,
