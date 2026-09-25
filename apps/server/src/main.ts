@@ -29,13 +29,32 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(
     app,
     new DocumentBuilder()
-      .setTitle("Server")
-      .setDescription("Project Alpha API")
+      .setTitle("Project Alpha API")
+      .setDescription(
+        "Backend service providing authentication with JWT/rotating refresh tokens, hybrid cookie transport, user identity, and service health monitoring probes.",
+      )
       .setVersion("0.1.0")
-      .addBearerAuth()
+      .addBearerAuth(
+        {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+          name: "Authorization",
+          description: "Enter your JWT access token (Bearer <token>)",
+          in: "header",
+        },
+        "JWT-auth",
+      )
+      .addTag("auth", "Authentication, credentials, token rotation, and session management")
+      .addTag("users", "User profile and identity operations")
+      .addTag("health", "Liveness, readiness, and service monitoring probes")
       .build(),
   );
-  SwaggerModule.setup("docs", app, document);
+  SwaggerModule.setup("docs", app, document, {
+    swaggerOptions: {
+      persistAuthorization: true,
+    },
+  });
 
   await app.listen(port);
 }

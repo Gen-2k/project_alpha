@@ -12,16 +12,33 @@ import {
   UnauthorizedException,
   UsePipes,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import type { LoginDto, RegisterDto } from "@repo/validation/auth";
 import { loginSchema, registerSchema } from "@repo/validation/auth";
 import type { Request, Response } from "express";
 
+import { ApiErrorResponseDto } from "../common/dto/error-response.dto.js";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe.js";
 import { AuthService } from "./auth.service.js";
 import type { AuthenticatedRequest } from "./auth.types.js";
 import { extractRequestMetadata } from "./auth.types.js";
+import {
+  AuthTokensResponseDto,
+  LogoutResponseDto,
+  RevokeSessionResponseDto,
+  SessionResponseDto,
+  UserResponseDto,
+} from "./dto/auth-response.dto.js";
+import { LoginDto } from "./dto/login.dto.js";
+import { RefreshDto } from "./dto/refresh.dto.js";
+import { RegisterDto } from "./dto/register.dto.js";
 import { Public } from "./public.decorator.js";
 
 export const REFRESH_COOKIE_NAME = "refreshToken";
@@ -35,11 +52,24 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post("register")
-  @ApiOperation({ summary: "Register a new user" })
-  @ApiResponse({ status: 201, description: "User registered; tokens issued." })
-  @ApiResponse({ status: 400, description: "Body failed validation." })
-  @ApiResponse({ status: 409, description: "Email already registered." })
-  @ApiResponse({ status: 429, description: "Too many requests; rate limit exceeded." })
+  @ApiOperation({
+    summary: "Register a new user",
+    description:
+      "Creates user credentials, sets an HttpOnly refresh cookie, and returns access and refresh tokens.",
+  })
+  @ApiBody({ type: RegisterDto })
+  @ApiResponse({
+    status: 201,
+    type: AuthTokensResponseDto,
+    description: "User registered; tokens issued.",
+  })
+  @ApiResponse({ status: 400, type: ApiErrorResponseDto, description: "Body failed validation." })
+  @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Email already registered." })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
   @UsePipes(new ZodValidationPipe(registerSchema))
   async register(
     @Body() dto: RegisterDto,
@@ -55,10 +85,19 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post("login")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Log in with email and password" })
-  @ApiResponse({ status: 200, description: "Tokens issued." })
-  @ApiResponse({ status: 401, description: "Invalid credentials." })
-  @ApiResponse({ status: 429, description: "Too many requests; rate limit exceeded." })
+  @ApiOperation({
+    summary: "Log in with email and password",
+    description:
+      "Verifies user credentials, sets an HttpOnly refresh cookie, and returns access and refresh tokens.",
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({ status: 200, type: AuthTokensResponseDto, description: "Tokens issued." })
+  @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Invalid credentials." })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
   @UsePipes(new ZodValidationPipe(loginSchema))
   async login(
     @Body() dto: LoginDto,
@@ -74,10 +113,27 @@ export class AuthController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("refresh")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Rotate a refresh token into a fresh pair" })
-  @ApiResponse({ status: 200, description: "Fresh token pair issued." })
-  @ApiResponse({ status: 401, description: "Invalid, expired, or reused token." })
-  @ApiResponse({ status: 429, description: "Too many requests; rate limit exceeded." })
+  @ApiOperation({
+    summary: "Rotate a refresh token into a fresh pair",
+    description:
+      "Rotates a refresh token supplied via HttpOnly cookie or request body into a new token pair.",
+  })
+  @ApiBody({ type: RefreshDto, required: false })
+  @ApiResponse({
+    status: 200,
+    type: AuthTokensResponseDto,
+    description: "Fresh token pair issued.",
+  })
+  @ApiResponse({
+    status: 401,
+    type: ApiErrorResponseDto,
+    description: "Invalid, expired, or reused token.",
+  })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
   async refresh(
     @Body() body: unknown,
     @Req() req: Request,
@@ -99,7 +155,13 @@ export class AuthController {
   @Public()
   @Post("logout")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Invalidate a refresh token (always succeeds)" })
+  @ApiOperation({
+    summary: "Invalidate a refresh token",
+    description:
+      "Clears the HttpOnly refresh cookie and deletes the token from database if present (always succeeds).",
+  })
+  @ApiBody({ type: RefreshDto, required: false })
+  @ApiResponse({ status: 200, type: LogoutResponseDto, description: "Logged out successfully." })
   async logout(
     @Body() body: unknown,
     @Req() req: Request,
@@ -115,40 +177,47 @@ export class AuthController {
 
   @Post("logout-all")
   @HttpCode(HttpStatus.OK)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: "Revoke all active sessions for current user" })
-  @ApiResponse({ status: 200, description: "All sessions revoked." })
-  @ApiResponse({ status: 401, description: "Missing or invalid token." })
+  @ApiBearerAuth("JWT-auth")
+  @ApiOperation({
+    summary: "Revoke all active sessions for current user",
+    description: "Revokes all refresh tokens belonging to the authenticated user.",
+  })
+  @ApiResponse({ status: 200, type: LogoutResponseDto, description: "All sessions revoked." })
+  @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
   async logoutAll(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) res: Response) {
     this.clearRefreshTokenCookie(res);
     return this.authService.logoutAll(req.user.sub);
   }
 
   @Get("sessions")
-  @ApiBearerAuth()
-  @ApiOperation({ summary: "List active sessions for current user" })
-  @ApiResponse({ status: 200, description: "List of active sessions." })
-  @ApiResponse({ status: 401, description: "Missing or invalid token." })
+  @ApiBearerAuth("JWT-auth")
+  @ApiOperation({
+    summary: "List active sessions for current user",
+    description:
+      "Returns an array of non-revoked, unexpired sessions with IP and User-Agent details.",
+  })
+  @ApiResponse({ status: 200, type: [SessionResponseDto], description: "List of active sessions." })
+  @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
   sessions(@Req() req: AuthenticatedRequest) {
     return this.authService.listSessions(req.user.sub);
   }
 
   @Delete("sessions/:id")
   @HttpCode(HttpStatus.OK)
-  @ApiBearerAuth()
+  @ApiBearerAuth("JWT-auth")
   @ApiOperation({ summary: "Revoke a specific active session" })
   @ApiParam({ name: "id", description: "Session UUID" })
-  @ApiResponse({ status: 200, description: "Session revoked." })
-  @ApiResponse({ status: 401, description: "Missing or invalid token." })
+  @ApiResponse({ status: 200, type: RevokeSessionResponseDto, description: "Session revoked." })
+  @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
   revokeSession(@Param("id") sessionId: string, @Req() req: AuthenticatedRequest) {
     return this.authService.revokeSession(req.user.sub, sessionId);
   }
 
   @Get("me")
-  @ApiBearerAuth()
+  @ApiBearerAuth("JWT-auth")
   @ApiOperation({ summary: "Current user from the bearer token" })
-  @ApiResponse({ status: 200, description: "Authenticated user." })
-  @ApiResponse({ status: 401, description: "Missing or invalid token." })
+  @ApiResponse({ status: 200, type: UserResponseDto, description: "Authenticated user." })
+  @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
   me(@Req() req: AuthenticatedRequest) {
     return this.authService.me(req.user.sub);
   }
