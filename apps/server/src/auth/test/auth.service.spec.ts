@@ -60,7 +60,12 @@ function setup() {
     delete: vi.fn(() => ({
       where: () => {
         calls.deleted += 1;
-        return Promise.resolve([]);
+        const rows = [{ id: "deleted-token-id" }];
+        const promise = Promise.resolve(rows) as Promise<typeof rows> & {
+          returning: () => Promise<typeof rows>;
+        };
+        promise.returning = () => Promise.resolve(rows);
+        return promise;
       },
     })),
   };
@@ -337,6 +342,26 @@ describe("AuthService", () => {
     it("should reject deleted users", async () => {
       const { service } = setup();
       await expect(service.me("missing")).rejects.toThrow("Invalid credentials");
+    });
+  });
+
+  describe("cleanupExpiredTokens", () => {
+    it("should delete expired and revoked tokens and return count", async () => {
+      const { service, calls } = setup();
+      const result = await service.cleanupExpiredTokens();
+      expect(result).toEqual({ deleted: 1 });
+      expect(calls.deleted).toBe(1);
+    });
+
+    it("should handle zero deleted rows gracefully", async () => {
+      const { service, db } = setup();
+      (db.delete as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+        where: () => ({
+          returning: () => Promise.resolve([]),
+        }),
+      });
+      const result = await service.cleanupExpiredTokens();
+      expect(result).toEqual({ deleted: 0 });
     });
   });
 });

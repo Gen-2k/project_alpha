@@ -11,6 +11,7 @@ describe("validateEnv", () => {
   it("should validate and apply defaults for optional fields", () => {
     const env = validateEnv(validBase);
     expect(env.PORT).toBe(3001);
+    expect(env.CORS_ORIGIN).toBe("http://localhost:3000");
     expect(env.JWT_ACCESS_EXPIRES_IN).toBe("15m");
     expect(env.JWT_REFRESH_EXPIRES_IN).toBe("7d");
     expect(env.DATABASE_URL).toBe(validBase.DATABASE_URL);
@@ -21,10 +22,12 @@ describe("validateEnv", () => {
     const env = validateEnv({
       ...validBase,
       PORT: "8080",
+      CORS_ORIGIN: "https://example.com,https://app.example.com",
       JWT_ACCESS_EXPIRES_IN: "30m",
       JWT_REFRESH_EXPIRES_IN: "14d",
     });
     expect(env.PORT).toBe(8080);
+    expect(env.CORS_ORIGIN).toBe("https://example.com,https://app.example.com");
     expect(env.JWT_ACCESS_EXPIRES_IN).toBe("30m");
     expect(env.JWT_REFRESH_EXPIRES_IN).toBe("14d");
   });

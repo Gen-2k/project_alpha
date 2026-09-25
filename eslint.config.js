@@ -36,6 +36,7 @@ export default [
       "**/.turbo/**",
       "**/.next/**",
       "**/vite.config.*.timestamp*",
+      "**/drizzle/**",
     ],
   },
   ...base,

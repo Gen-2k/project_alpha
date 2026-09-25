@@ -9,6 +9,7 @@
 import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import prettier from "eslint-config-prettier/flat";
+import checkFile from "eslint-plugin-check-file";
 import simpleImportSort from "eslint-plugin-simple-import-sort";
 import tseslint from "typescript-eslint";
 
@@ -23,6 +24,7 @@ export default defineConfig(
       },
     },
     plugins: {
+      "check-file": checkFile,
       "simple-import-sort": simpleImportSort,
     },
     rules: {
@@ -41,6 +43,94 @@ export default defineConfig(
       // `.then(() => log())`) is idiomatic and type-safe by design — flagging
       // it is pure friction, so this stylistic rule stays off.
       "@typescript-eslint/no-confusing-void-expression": "off",
+      // Strict naming conventions across the monorepo
+      "@typescript-eslint/naming-convention": [
+        "error",
+        {
+          selector: "default",
+          format: ["camelCase"],
+          leadingUnderscore: "allow",
+          trailingUnderscore: "allow",
+        },
+        {
+          selector: "variable",
+          format: ["camelCase", "UPPER_CASE", "PascalCase"],
+          leadingUnderscore: "allow",
+          trailingUnderscore: "allow",
+        },
+        {
+          selector: "function",
+          format: ["camelCase", "PascalCase"],
+        },
+        {
+          selector: "parameter",
+          format: ["camelCase"],
+          leadingUnderscore: "allow",
+        },
+        {
+          selector: "class",
+          format: ["PascalCase"],
+        },
+        {
+          selector: "classMethod",
+          format: ["camelCase"],
+        },
+        {
+          selector: "classProperty",
+          format: ["camelCase", "UPPER_CASE"],
+          leadingUnderscore: "allow",
+        },
+        {
+          selector: "typeLike",
+          format: ["PascalCase"],
+        },
+        {
+          selector: "interface",
+          format: ["PascalCase"],
+          custom: {
+            regex: "^I[A-Z]",
+            match: false,
+          },
+        },
+        {
+          selector: "enum",
+          format: ["PascalCase", "UPPER_CASE"],
+        },
+        {
+          selector: "typeParameter",
+          format: ["PascalCase"],
+        },
+        {
+          selector: "import",
+          format: ["camelCase", "PascalCase", "UPPER_CASE"],
+        },
+        {
+          selector: "property",
+          modifiers: ["requiresQuotes"],
+          format: null,
+        },
+        {
+          selector: "property",
+          format: ["camelCase", "UPPER_CASE", "snake_case"],
+          leadingUnderscore: "allow",
+        },
+      ],
+      // File and directory naming conventions
+      "check-file/filename-naming-convention": [
+        "error",
+        {
+          "**/src/**/*.{ts,tsx,js,jsx}": "KEBAB_CASE",
+        },
+        {
+          ignoreMiddleExtensions: true,
+        },
+      ],
+      "check-file/folder-naming-convention": [
+        "error",
+        {
+          "**/src/**/": "KEBAB_CASE",
+        },
+      ],
       // style-only import ordering (tsc + bundlers don't care).
       "simple-import-sort/imports": "error",
       "no-console": ["warn", { allow: ["warn", "error"] }],

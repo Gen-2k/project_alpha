@@ -9,6 +9,7 @@ import { UsersModule } from "../users/users.module.js";
 import { AuthController } from "./auth.controller.js";
 import { AuthService } from "./auth.service.js";
 import { JwtAuthGuard } from "./jwt-auth.guard.js";
+import { TokenCleanupTask } from "./tasks/token-cleanup.task.js";
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { JwtAuthGuard } from "./jwt-auth.guard.js";
   controllers: [AuthController],
   providers: [
     AuthService,
+    TokenCleanupTask,
     // Deny by default: every route requires a bearer token unless
     // explicitly marked @Public(). Openness is opt-in, never default.
     { provide: APP_GUARD, useClass: JwtAuthGuard },

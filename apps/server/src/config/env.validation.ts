@@ -4,6 +4,7 @@ import { z } from "zod";
 // PORT uses coerce: env vars arrive as strings, the app needs a number.
 const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  CORS_ORIGIN: z.string().default("http://localhost:3000"),
   DATABASE_URL: z.url(),
   // HS256 needs a secret with real entropy: 32+ chars, never committed.
   // jsonwebtoken durations ("15m", "7d") for access/refresh lifetimes.

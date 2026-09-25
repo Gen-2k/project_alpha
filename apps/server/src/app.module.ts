@@ -1,7 +1,9 @@
 import type { MiddlewareConsumer, NestModule } from "@nestjs/common";
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { APP_FILTER } from "@nestjs/core";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 
 import { AuthModule } from "./auth/auth.module.js";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter.js";
@@ -16,12 +18,23 @@ import { UsersModule } from "./users/users.module.js";
     // Validated once at boot: invalid env fails fast instead of
     // running half-configured. See src/config/env.validation.ts.
     ConfigModule.forRoot({ isGlobal: true, cache: true, validate: validateEnv }),
+    ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 120,
+      },
+    ]),
     DatabaseModule,
     UsersModule,
     AuthModule,
     HealthModule,
   ],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_FILTER,
       useClass: AllExceptionsFilter,

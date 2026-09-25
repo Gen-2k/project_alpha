@@ -15,7 +15,7 @@ import type {
   SessionDto,
 } from "@repo/validation/auth";
 import bcrypt from "bcryptjs";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { StringValue } from "ms";
 import ms from "ms";
 
@@ -41,7 +41,7 @@ export class AuthService {
   // cast is sound because env validation already constrains shape to
   // /^\d+[smhd]$/ (a subset of StringValue).
   private readonly accessExpiresInMs: number;
-  private readonly refreshExpiresInMs: number;
+  readonly refreshExpiresInMs: number;
 
   constructor(
     private readonly usersService: UsersService,
@@ -194,6 +194,25 @@ export class AuthService {
       userAgent: meta?.userAgent,
     });
     return { accessToken, refreshToken, user };
+  }
+
+  async cleanupExpiredTokens(
+    revocationRetentionMs = 24 * 60 * 60 * 1000,
+  ): Promise<{ deleted: number }> {
+    const now = new Date();
+    const revocationCutoff = new Date(now.getTime() - revocationRetentionMs);
+
+    const deletedRows = await this.db
+      .delete(refreshTokens)
+      .where(
+        or(
+          lt(refreshTokens.expiresAt, now),
+          and(isNotNull(refreshTokens.revokedAt), lt(refreshTokens.revokedAt, revocationCutoff)),
+        ),
+      )
+      .returning({ id: refreshTokens.id });
+
+    return { deleted: deletedRows.length };
   }
 
   private async revokeAll(userId: string): Promise<void> {
