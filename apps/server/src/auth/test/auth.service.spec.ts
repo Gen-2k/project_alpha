@@ -32,9 +32,13 @@ interface StoredRefreshRow {
 function setup() {
   const inserted: StoredRefreshRow[] = [];
   const selectRows: StoredRefreshRow[] = [];
-  const calls = { deleted: 0, updated: 0 };
+  const calls = { deleted: 0, updated: 0, transactions: 0 };
 
   const db = {
+    transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
+      calls.transactions += 1;
+      return cb(db);
+    }),
     select: vi.fn(() => ({
       from: () => ({
         where: () => Promise.resolve(selectRows),
@@ -193,6 +197,7 @@ describe("AuthService", () => {
       expect(second.accessToken.length).toBeGreaterThan(0);
       expect(inserted).toHaveLength(2);
       expect(calls.updated).toBe(1);
+      expect(calls.transactions).toBe(1);
 
       // Immediate double-submit within grace window rejects without revoking all sessions
       await expect(service.refresh({ refreshToken: first.refreshToken })).rejects.toThrow(
@@ -287,6 +292,23 @@ describe("AuthService", () => {
       findById.mockResolvedValueOnce(undefined);
       await expect(service.refresh({ refreshToken: first.refreshToken })).rejects.toThrow(
         "Invalid refresh token",
+      );
+    });
+
+    it("should fail and propagate error if atomic rotation transaction throws", async () => {
+      const { service, findById, inserted, selectRows, db } = setup();
+      findById.mockResolvedValue(safeUser);
+      const first = await service.register({
+        email: "ada@example.com",
+        password: "correct-horse-1",
+      });
+      const storedRow = inserted[0];
+      if (!storedRow) throw new Error("expected stored row");
+      selectRows.push({ ...storedRow });
+
+      db.transaction.mockRejectedValueOnce(new Error("DB transaction failed"));
+      await expect(service.refresh({ refreshToken: first.refreshToken })).rejects.toThrow(
+        "DB transaction failed",
       );
     });
   });

@@ -120,15 +120,18 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
-    // Mark current token as rotated
-    await this.db
-      .update(refreshTokens)
-      .set({ revokedAt: new Date() })
-      .where(eq(refreshTokens.tokenHash, tokenHash));
-
     const user = await this.usersService.findById(payload.sub);
     if (!user) throw new UnauthorizedException("Invalid refresh token");
-    return this.issueTokens(user, meta);
+
+    return this.db.transaction(async (tx) => {
+      // Mark current token as rotated
+      await tx
+        .update(refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(refreshTokens.tokenHash, tokenHash));
+
+      return this.issueTokens(user, meta, tx);
+    });
   }
 
   // Idempotent by design: unknown or expired tokens still succeed, so
@@ -178,7 +181,11 @@ export class AuthService {
     return user;
   }
 
-  private async issueTokens(user: SafeUser, meta?: RequestMetadata): Promise<AuthTokens> {
+  private async issueTokens(
+    user: SafeUser,
+    meta?: RequestMetadata,
+    executor: Pick<Db, "insert"> = this.db,
+  ): Promise<AuthTokens> {
     const payload: JwtPayload = { sub: user.id, email: user.email };
     const accessToken = await this.jwtService.signAsync(payload, {
       expiresIn: this.accessExpiresInMs,
@@ -186,7 +193,7 @@ export class AuthService {
     const refreshToken = await this.jwtService.signAsync({ ...payload, type: "refresh" } as const, {
       expiresIn: this.refreshExpiresInMs,
     });
-    await this.db.insert(refreshTokens).values({
+    await executor.insert(refreshTokens).values({
       userId: user.id,
       tokenHash: hashToken(refreshToken),
       expiresAt: new Date(Date.now() + this.refreshExpiresInMs),
