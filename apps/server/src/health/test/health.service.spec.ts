@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from "@nestjs/common";
 import type { Db } from "@repo/database/client";
 import { describe, expect, it } from "vitest";
 
@@ -34,7 +35,14 @@ describe("HealthService", () => {
     });
 
     it("should throw ServiceUnavailableException when database is down", async () => {
-      await expect(new HealthService(fakeDb(true)).ready()).rejects.toThrow();
+      const readyPromise = new HealthService(fakeDb(true)).ready();
+      await expect(readyPromise).rejects.toThrow(ServiceUnavailableException);
+      await expect(readyPromise).rejects.toMatchObject({
+        response: {
+          status: "error",
+          database: "down",
+        },
+      });
     });
   });
 

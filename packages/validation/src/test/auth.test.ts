@@ -29,12 +29,23 @@ describe("registerSchema", () => {
     expect(
       registerSchema.safeParse({ email: "ada@example.com", password: "x".repeat(73) }).success,
     ).toBe(false);
+    expect(
+      registerSchema.safeParse({
+        email: `${"a".repeat(250)}@example.com`,
+        password: "correct-horse-1",
+      }).success,
+    ).toBe(false);
   });
 });
 
 describe("loginSchema", () => {
-  it("accepts any non-empty credentials", () => {
-    expect(loginSchema.safeParse({ email: "a", password: "b" }).success).toBe(true);
+  it("accepts any non-empty credentials and normalizes email", () => {
+    const result = loginSchema.safeParse({ email: "  Ada@Example.COM  ", password: "b" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.email).toBe("ada@example.com");
+      expect(result.data.password).toBe("b");
+    }
   });
 
   it("rejects empty or missing fields", () => {

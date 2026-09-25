@@ -47,4 +47,17 @@ describe("extractRequestMetadata", () => {
       userAgent: undefined,
     });
   });
+
+  it("should return undefined ipAddress when both x-forwarded-for and req.ip are absent", () => {
+    const req = {
+      headers: {},
+      ip: undefined,
+    } as unknown as Request;
+
+    const meta = extractRequestMetadata(req);
+    expect(meta).toEqual({
+      ipAddress: undefined,
+      userAgent: undefined,
+    });
+  });
 });

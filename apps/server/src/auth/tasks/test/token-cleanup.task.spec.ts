@@ -39,4 +39,11 @@ describe("TokenCleanupTask", () => {
     expect(result).toEqual({ deleted: 0 });
     expect(loggerSpy).not.toHaveBeenCalled();
   });
+
+  it("should propagate error when authService.cleanupExpiredTokens fails", async () => {
+    authService.cleanupExpiredTokens.mockRejectedValueOnce(new Error("Cleanup database error"));
+
+    await expect(task.handleCleanup()).rejects.toThrow("Cleanup database error");
+    expect(loggerSpy).not.toHaveBeenCalled();
+  });
 });
