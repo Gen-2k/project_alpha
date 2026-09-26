@@ -56,7 +56,7 @@ export class UsersController {
   @Delete("me")
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth("JWT-auth")
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiOperation({
     summary: "Permanently delete current user account",
     description:

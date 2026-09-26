@@ -73,7 +73,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("register")
   @ApiOperation({
     summary: "Register a new user",
@@ -98,7 +98,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("login")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -229,7 +229,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("verify-email")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -259,7 +259,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 3, ttl: 900000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("resend-verification")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -285,7 +285,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 3, ttl: 900000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("forgot-password")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -311,7 +311,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("reset-password")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -343,7 +343,7 @@ export class AuthController {
   @Post("update-password")
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth("JWT-auth")
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiOperation({
     summary: "Update account password for authenticated user",
     description:

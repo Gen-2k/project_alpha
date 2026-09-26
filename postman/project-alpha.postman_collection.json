@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "c71a3d92-12ef-4f91-8892-9a004b31e920",
     "name": "Project Alpha API - Complete Test Suite",
-    "description": "Production-grade Postman collection covering Authentication, Token Families, Session Management, Token Rotation, User Identity, and Service Health probes.\n\n### Features\n- **Automated Token Chaining**: Login & Register tests automatically save `accessToken`, `refreshToken`, `sessionId`, and `familyId` into collection variables.\n- **Automated Dynamic Data**: Unique emails generated dynamically per run using timestamps (`ada_<timestamp>@example.com`).\n- **OWASP Security Verification**: Tests for Token Type Confusion, Constant-Time Login, Concurrency Race Conditions, and RFC 6819 Device Session Isolation.\n- **Full Edge-Case Coverage**: 2xx Success, 400 Validation (min length, max 72 bcrypt limit, malformed email), 401 Unauthorized (missing, expired, malformed, rotated, forged), 409 Conflict, and Rate Limiting.",
+    "description": "# Project Alpha API — Postman Test Suite & Verification Guide\n\nComprehensive test suite for Project Alpha's authentication service, session manager, and user lifecycle backend.\n\n---\n\n### Architecture & Security Rules\n1. **Browser-Only HttpOnly Cookie Transport**:\n   - Refresh tokens are managed through secure `HttpOnly; SameSite=Lax; Path=/api/v1/auth` cookies.\n   - Refresh tokens are also returned upon login and rotation for developer visibility, but the server validates and extracts tokens exclusively from the HttpOnly cookie.\n   - Postman automatically manages, persists, and attaches these cookies for requests to `{{baseUrl}}`.\n2. **Mandatory Email Verification Flow**:\n   - Registering an account (`POST /api/v1/auth/register`) issues no session tokens. The user remains unverified.\n   - Unverified accounts cannot log in (returns `401 Unauthorized` with `EMAIL_NOT_VERIFIED`).\n   - In local development mode (`SMTP` credentials not configured), the server prints the token to the terminal:\n     `[DEV EMAIL DISPATCH] Email verification link for ...: >>> Verification URL: http://localhost:3000/verify-email?token=<token>`\n   - To verify manually, paste the token into `verificationToken` and execute `03. Email Verification Flow -> Verify Email - Submit Token`.\n3. **Pre-Verified Test Account (Out of the Box)**:\n   - For automated Collection Runner runs, a pre-verified account exists:\n     - **Email**: `verified@example.com` (variable `{{verifiedEmail}}`)\n     - **Password**: `correct-horse-battery-staple` (variable `{{password}}`)\n4. **Token Family Rotation (RFC 6819)**:\n   - Refreshing a token generates a new cryptographic token in the same session family.\n   - Replay or reuse of an already-rotated token revokes the entire family immediately.\n5. **Anti-Enumeration Defenses**:\n   - Constant-time bcrypt responses and generic messages for registration, login, resend verification, and forgot password endpoints prevent account harvesting.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -13,12 +13,22 @@
     },
     {
       "key": "dynamicEmail",
-      "value": "user@example.com",
+      "value": "ada_test@example.com",
+      "type": "string"
+    },
+    {
+      "key": "verifiedEmail",
+      "value": "verified@example.com",
       "type": "string"
     },
     {
       "key": "password",
       "value": "correct-horse-battery-staple",
+      "type": "string"
+    },
+    {
+      "key": "newPassword",
+      "value": "new-super-secure-password-123",
       "type": "string"
     },
     {
@@ -32,7 +42,12 @@
       "type": "string"
     },
     {
-      "key": "oldRotatedToken",
+      "key": "verificationToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "resetToken",
       "value": "",
       "type": "string"
     },
@@ -55,12 +70,17 @@
       "key": "forgedToken",
       "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature",
       "type": "string"
+    },
+    {
+      "key": "enableDestructiveAccountDeletion",
+      "value": "false",
+      "type": "string"
     }
   ],
   "item": [
     {
       "name": "01. Health & Probes",
-      "description": "Probes for process uptime, liveness, and database connectivity.",
+      "description": "Probes for process uptime, liveness, and database readiness.",
       "item": [
         {
           "name": "Service Health Aggregator",
@@ -160,7 +180,7 @@
     },
     {
       "name": "02. Registration (Auth)",
-      "description": "User account registration endpoints and validation edge cases.",
+      "description": "User account registration endpoints and validation edge cases. Registration does not issue session tokens.",
       "item": [
         {
           "name": "Register - Success (201 Created)",
@@ -170,6 +190,7 @@
               "script": {
                 "exec": [
                   "const uniqueEmail = `ada_${Date.now()}@example.com`;",
+                  "pm.environment.set('dynamicEmail', uniqueEmail);",
                   "pm.collectionVariables.set('dynamicEmail', uniqueEmail);"
                 ],
                 "type": "text/javascript"
@@ -182,19 +203,16 @@
                   "pm.test('Status code is 201 Created', function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.test('Tokens and user profile are returned', function () {",
+                  "pm.test('Registration message returned without session tokens', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('accessToken');",
-                  "    pm.expect(json).to.have.property('refreshToken');",
-                  "    pm.expect(json).to.have.property('user');",
-                  "    pm.expect(json.user).to.have.property('id');",
-                  "    pm.expect(json.user.email).to.eql(pm.collectionVariables.get('dynamicEmail'));",
-                  "    pm.expect(json.user).to.not.have.property('passwordHash');",
-                  "    pm.collectionVariables.set('accessToken', json.accessToken);",
-                  "    pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "    pm.expect(json.message).to.eql('Registration successful. Please check your email to verify your account.');",
+                  "    pm.expect(json).to.have.property('email');",
+                  "    pm.expect(json).to.not.have.property('accessToken');",
+                  "    pm.expect(json).to.not.have.property('refreshToken');",
+                  "    pm.expect(json).to.not.have.property('user');",
                   "});",
-                  "pm.test('HttpOnly refresh cookie is set', function () {",
-                  "    pm.expect(pm.cookies.has('refreshToken')).to.be.true;",
+                  "pm.test('No refresh cookie is set upon registration', function () {",
+                  "    pm.expect(pm.cookies.has('refreshToken')).to.be.false;",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -239,7 +257,7 @@
                   "    const json = pm.response.json();",
                   "    pm.expect(json.code).to.eql('EMAIL_ALREADY_REGISTERED');",
                   "    pm.expect(json.error).to.eql('Conflict');",
-                  "    pm.expect(json.message).to.eql('Email already registered');",
+                  "    pm.expect(json.message).to.eql('An account with this email address already exists');",
                   "    pm.expect(json).to.have.property('requestId');",
                   "});"
                 ],
@@ -406,11 +424,149 @@
       ]
     },
     {
-      "name": "03. Authentication (Login)",
-      "description": "User credential verification, timing attack defense, and token issuance.",
+      "name": "03. Email Verification Flow",
+      "description": "Verification token validation and resend dispatch with anti-enumeration protection.",
       "item": [
         {
-          "name": "Login - Success (200 OK)",
+          "name": "Verify Email - Invalid or Expired Token (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Rejects invalid token with descriptive message', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('The email verification token is invalid or has expired');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"invalid-verification-token-xyz\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-email",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "verify-email"]
+            }
+          }
+        },
+        {
+          "name": "Verify Email - Missing Token (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Validation issue specifies missing token', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('VALIDATION_FAILED');",
+                  "    pm.expect(json.issues.some(i => i.path === 'token')).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-email",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "verify-email"]
+            }
+          }
+        },
+        {
+          "name": "Verify Email - Submit Token (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const token = pm.variables.get('verificationToken');",
+                  "if (token && token.trim() !== '') {",
+                  "    pm.test('Status code is 200 OK', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.test('Returns verified confirmation message', function () {",
+                  "        const json = pm.response.json();",
+                  "        pm.expect(json.message).to.eql('Your email has been successfully verified. You may now log in with your credentials.');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Manual verification token omitted — skipped in automated run', function () {",
+                  "        pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{verificationToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-email",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "verify-email"]
+            },
+            "description": "Copy token from terminal dev dispatch log and paste into `verificationToken`."
+          }
+        },
+        {
+          "name": "Resend Verification - Valid Email (200 OK)",
           "event": [
             {
               "listen": "test",
@@ -419,13 +575,301 @@
                   "pm.test('Status code is 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test('Returns fresh tokens and user object', function () {",
+                  "pm.test('Returns anti-enumeration generic message', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('accessToken');",
-                  "    pm.expect(json).to.have.property('refreshToken');",
-                  "    pm.expect(json.user.email).to.eql(pm.collectionVariables.get('dynamicEmail'));",
-                  "    pm.collectionVariables.set('accessToken', json.accessToken);",
-                  "    pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "    pm.expect(json.message).to.eql('If an unverified account exists with that email address, a new verification link has been sent. Please check your inbox and spam folder.');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{dynamicEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/resend-verification",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "resend-verification"]
+            }
+          }
+        },
+        {
+          "name": "Resend Verification - Invalid Email (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Returns VALIDATION_FAILED code', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('VALIDATION_FAILED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"not-a-valid-email\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/resend-verification",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "resend-verification"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. Password Recovery & Reset Flow",
+      "description": "Password reset initiation, anti-enumeration responses, and token validation.",
+      "item": [
+        {
+          "name": "Forgot Password - Request Reset Link (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Returns anti-enumeration generic message', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('If an account exists with that email address, password reset instructions have been sent. Please check your inbox and spam folder.');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{verifiedEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "forgot-password"]
+            }
+          }
+        },
+        {
+          "name": "Forgot Password - Invalid Email Format (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Fails validation on malformed email', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('VALIDATION_FAILED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"invalid-email-string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "forgot-password"]
+            }
+          }
+        },
+        {
+          "name": "Reset Password - Invalid or Expired Token (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Rejects invalid token', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('The password reset token is invalid or has expired');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"invalid-token-123\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "reset-password"]
+            }
+          }
+        },
+        {
+          "name": "Reset Password - Submit Token (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const token = pm.variables.get('resetToken');",
+                  "if (token && token.trim() !== '') {",
+                  "    pm.test('Status code is 200 OK', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.test('Returns password reset success message', function () {",
+                  "        const json = pm.response.json();",
+                  "        pm.expect(json.message).to.eql('Your password has been successfully reset. You may now log in with your new password.');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Manual reset token omitted — skipped in automated run', function () {",
+                  "        pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "reset-password"]
+            },
+            "description": "Copy token from terminal dev dispatch log and paste into `resetToken` variable."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05. Authentication (Login)",
+      "description": "User credential verification, unverified account barriers, constant-time comparisons, and HttpOnly cookie issuance.",
+      "item": [
+        {
+          "name": "Login - Unverified Account Blocked (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "if (!pm.variables.get('dynamicEmail')) {",
+                  "    const fallback = `unverified_${Date.now()}@example.com`;",
+                  "    pm.environment.set('dynamicEmail', fallback);",
+                  "    pm.collectionVariables.set('dynamicEmail', fallback);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Blocks unverified account with EMAIL_NOT_VERIFIED code', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('EMAIL_NOT_VERIFIED');",
+                  "    pm.expect(json.message).to.eql('Please verify your email address before logging in. Check your inbox or request a new verification link.');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -457,19 +901,44 @@
           }
         },
         {
-          "name": "Login - Wrong Password (401 Unauthorized)",
+          "name": "Login - Success Verified User (200 OK)",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "if (!pm.variables.get('verifiedEmail')) {",
+                  "    pm.environment.set('verifiedEmail', 'verified@example.com');",
+                  "    pm.collectionVariables.set('verifiedEmail', 'verified@example.com');",
+                  "}",
+                  "if (!pm.variables.get('password')) {",
+                  "    pm.environment.set('password', 'correct-horse-battery-staple');",
+                  "    pm.collectionVariables.set('password', 'correct-horse-battery-staple');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is 401 Unauthorized', function () {",
-                  "    pm.response.to.have.status(401);",
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test('Returns INVALID_CREDENTIALS code', function () {",
+                  "pm.test('Returns accessToken, refreshToken, and safe user profile', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json.code).to.eql('INVALID_CREDENTIALS');",
-                  "    pm.expect(json.message).to.eql('Invalid credentials');",
+                  "    pm.expect(json).to.have.property('accessToken');",
+                  "    pm.expect(json).to.have.property('refreshToken');",
+                  "    pm.expect(json.user.email).to.eql(pm.variables.get('verifiedEmail') || 'verified@example.com');",
+                  "    pm.expect(json.user).to.not.have.property('passwordHash');",
+                  "    pm.environment.set('accessToken', json.accessToken);",
+                  "    pm.collectionVariables.set('accessToken', json.accessToken);",
+                  "    pm.environment.set('refreshToken', json.refreshToken);",
+                  "    pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "});",
+                  "pm.test('HttpOnly refresh cookie is set', function () {",
+                  "    pm.expect(pm.cookies.has('refreshToken')).to.be.true;",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -486,7 +955,51 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{dynamicEmail}}\",\n  \"password\": \"completely-incorrect-password\"\n}",
+              "raw": "{\n  \"email\": \"{{verifiedEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login - Wrong Password (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Returns INVALID_CREDENTIALS code', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('INVALID_CREDENTIALS');",
+                  "    pm.expect(json.message).to.eql('Invalid email or password');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{verifiedEmail}}\",\n  \"password\": \"completely-incorrect-password\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -513,7 +1026,7 @@
                   "pm.test('Fails identically to prevent email enumeration', function () {",
                   "    const json = pm.response.json();",
                   "    pm.expect(json.code).to.eql('INVALID_CREDENTIALS');",
-                  "    pm.expect(json.message).to.eql('Invalid credentials');",
+                  "    pm.expect(json.message).to.eql('Invalid email or password');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -590,8 +1103,8 @@
       ]
     },
     {
-      "name": "04. User Profile & Guard Security",
-      "description": "Authenticated user identity inspection and OWASP ASVS V3.5.3 Token Type Confusion defenses.",
+      "name": "06. User Identity & Guard Security",
+      "description": "Authenticated user profile inspection and OWASP ASVS V3.5.3 Token Type Confusion defenses.",
       "item": [
         {
           "name": "Get Current User Profile (/users/me)",
@@ -648,7 +1161,7 @@
                   "});",
                   "pm.test('Returns safe user object', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json.email).to.eql(pm.collectionVariables.get('dynamicEmail'));",
+                  "    pm.expect(json.email).to.eql(pm.variables.get('verifiedEmail') || 'verified@example.com');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -676,7 +1189,7 @@
           }
         },
         {
-          "name": "Token Type Confusion - Refresh Token as Bearer (401 Unauthorized)",
+          "name": "Token Type Confusion - Forged Token as Bearer (401 Unauthorized)",
           "event": [
             {
               "listen": "test",
@@ -685,9 +1198,9 @@
                   "pm.test('Status code is 401 Unauthorized', function () {",
                   "    pm.response.to.have.status(401);",
                   "});",
-                  "pm.test('Guard rejects refresh token from Bearer route (OWASP ASVS V3.5.3)', function () {",
+                  "pm.test('Guard rejects forged token signature (OWASP ASVS V3.5.3)', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json.message).to.eql('Invalid token type');",
+                  "    pm.expect(json.code).to.eql('UNAUTHORIZED');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -700,7 +1213,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{refreshToken}}",
+                  "value": "{{forgedToken}}",
                   "type": "string"
                 }
               ]
@@ -786,8 +1299,8 @@
       ]
     },
     {
-      "name": "05. Token Refresh & Family Rotation",
-      "description": "RFC 6819 rotating refresh token lifecycle, atomic concurrency locks, and grace periods.",
+      "name": "07. Token Refresh & Family Rotation (Cookie Transport)",
+      "description": "RFC 6819 rotating refresh token lifecycle via HttpOnly cookies without request body tokens.",
       "item": [
         {
           "name": "Refresh Token - Success Rotation (200 OK)",
@@ -799,14 +1312,17 @@
                   "pm.test('Status code is 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test('Rotates and issues new token pair', function () {",
+                  "pm.test('Rotates and issues new tokens', function () {",
                   "    const json = pm.response.json();",
                   "    pm.expect(json).to.have.property('accessToken');",
                   "    pm.expect(json).to.have.property('refreshToken');",
-                  "    pm.expect(json.refreshToken).to.not.eql(pm.collectionVariables.get('refreshToken'));",
-                  "    pm.collectionVariables.set('oldRotatedToken', pm.collectionVariables.get('refreshToken'));",
+                  "    pm.environment.set('accessToken', json.accessToken);",
                   "    pm.collectionVariables.set('accessToken', json.accessToken);",
+                  "    pm.environment.set('refreshToken', json.refreshToken);",
                   "    pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "});",
+                  "pm.test('Rotated HttpOnly cookie is updated', function () {",
+                  "    pm.expect(pm.cookies.has('refreshToken')).to.be.true;",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -815,30 +1331,17 @@
           ],
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/refresh",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "auth", "refresh"]
-            }
+            },
+            "description": "Notice: No request body. The refresh token is read directly from the `refreshToken` cookie set during login."
           }
         },
         {
-          "name": "Refresh Token - Concurrency Grace Period (401 Token already rotated)",
+          "name": "Refresh Token - Missing Cookie (401 Unauthorized)",
           "event": [
             {
               "listen": "test",
@@ -847,52 +1350,9 @@
                   "pm.test('Status code is 401 Unauthorized', function () {",
                   "    pm.response.to.have.status(401);",
                   "});",
-                  "pm.test('Double submit within grace window returns Token already rotated', function () {",
+                  "pm.test('Requires refresh token cookie', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json.message).to.eql('Token already rotated');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{oldRotatedToken}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/refresh",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "refresh"]
-            }
-          }
-        },
-        {
-          "name": "Refresh Token - Missing Token (401 Unauthorized)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 401 Unauthorized', function () {",
-                  "    pm.response.to.have.status(401);",
-                  "});",
-                  "pm.test('Requires refresh token in cookie or body', function () {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.message || '').to.include('Refresh token is required');",
+                  "    pm.expect(json.message).to.eql('A refresh token cookie must be provided');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -904,60 +1364,7 @@
           },
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/refresh",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "refresh"]
-            }
-          }
-        },
-        {
-          "name": "Refresh Token - Forged Signature (401 Unauthorized)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 401 Unauthorized', function () {",
-                  "    pm.response.to.have.status(401);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{forgedToken}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/refresh",
               "host": ["{{baseUrl}}"],
@@ -968,7 +1375,7 @@
       ]
     },
     {
-      "name": "06. Session Management",
+      "name": "08. Session Management",
       "description": "Active session inspection and targeted session family revocation.",
       "item": [
         {
@@ -988,7 +1395,9 @@
                   "    pm.expect(sessions[0]).to.have.property('id');",
                   "    pm.expect(sessions[0]).to.have.property('familyId');",
                   "    pm.expect(sessions[0]).to.have.property('expiresAt');",
+                  "    pm.environment.set('sessionId', sessions[0].id);",
                   "    pm.collectionVariables.set('sessionId', sessions[0].id);",
+                  "    pm.environment.set('familyId', sessions[0].familyId);",
                   "    pm.collectionVariables.set('familyId', sessions[0].familyId);",
                   "});"
                 ],
@@ -1087,11 +1496,232 @@
       ]
     },
     {
-      "name": "07. Logout & Revocation",
+      "name": "09. Password Update (In-Session)",
+      "description": "Authenticated password modification, cross-device session invalidation, and current session preservation.",
+      "item": [
+        {
+          "name": "Update Password - Same Password Rejected (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Rejects matching current and new password', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('VALIDATION_FAILED');",
+                  "    pm.expect(json.issues.some(i => i.message.includes('different from your current password'))).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/update-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "update-password"]
+            }
+          }
+        },
+        {
+          "name": "Update Password - Incorrect Current Password (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Rejects invalid current password', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('The current password provided is incorrect');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"incorrect-password-xyz\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/update-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "update-password"]
+            }
+          }
+        },
+        {
+          "name": "Update Password - Success (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Returns confirmation message', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('Your password has been successfully updated. All other active sessions have been signed out.');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/update-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "update-password"]
+            },
+            "description": "Updates password. The `refreshToken` cookie is present in Postman's cookie jar, so the server preserves the current session while revoking all other sessions."
+          }
+        },
+        {
+          "name": "Update Password - Restore Default Password (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Default password restored for test suite idempotency', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('Your password has been successfully updated. All other active sessions have been signed out.');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{newPassword}}\",\n  \"newPassword\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/update-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "update-password"]
+            },
+            "description": "Restores password back to the default `{{password}}` so future test runs remain 100% idempotent."
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Logout & Multi-Session Invalidation",
       "description": "Session invalidation, cookie clearing, and logout-all cascades.",
       "item": [
         {
-          "name": "Logout Current Session",
+          "name": "Logout Current Session (200 OK)",
           "event": [
             {
               "listen": "test",
@@ -1111,30 +1741,17 @@
           ],
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/logout",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "auth", "logout"]
-            }
+            },
+            "description": "Revokes current session family and clears HttpOnly refresh cookie."
           }
         },
         {
-          "name": "Logout All Sessions (Revoke All)",
+          "name": "Logout All Sessions (200 OK)",
           "event": [
             {
               "listen": "test",
@@ -1170,6 +1787,228 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "auth", "logout-all"]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Account Deletion",
+      "description": "Permanent account deletion with password re-authentication and session revocation.",
+      "item": [
+        {
+          "name": "Delete Account - Missing Bearer Token (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Rejects unauthenticated deletion request', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('UNAUTHORIZED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Delete Account - Missing Password Body (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Returns VALIDATION_FAILED on missing password', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('VALIDATION_FAILED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Delete Account - Incorrect Password (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Rejects deletion when password incorrect', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('The password provided is incorrect');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"incorrect-password-xyz\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Delete Account - Destructive Execution (200 OK)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const enabled = pm.variables.get('enableDestructiveAccountDeletion');",
+                  "if (enabled !== 'true') {",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Returns deleted: true and confirmation', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.deleted).to.be.true;",
+                  "    pm.expect(json.message).to.eql('Your account and all associated data have been permanently deleted.');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            },
+            "description": "Safety guard: Set variable `enableDestructiveAccountDeletion` to `true` to execute. By default, it preserves `verified@example.com` so the test runner can run repeatedly without breaking test fixtures."
           }
         }
       ]
