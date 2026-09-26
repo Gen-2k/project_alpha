@@ -45,6 +45,16 @@
       "key": "familyId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "malformedToken",
+      "value": "malformed.test.token",
+      "type": "string"
+    },
+    {
+      "key": "forgedToken",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature",
+      "type": "string"
     }
   ],
   "item": [
@@ -730,7 +740,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "not-a-valid-jwt-token-string",
+                  "value": "{{malformedToken}}",
                   "type": "string"
                 }
               ]
@@ -938,7 +948,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature\"\n}",
+              "raw": "{\n  \"refreshToken\": \"{{forgedToken}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
