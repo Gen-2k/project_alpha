@@ -10,11 +10,36 @@ export class TokenCleanupTask {
   constructor(private readonly authService: AuthService) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async handleCleanup(): Promise<{ deleted: number }> {
-    const result = await this.authService.cleanupExpiredTokens();
-    if (result.deleted > 0) {
-      this.logger.log(`Cleaned up ${String(result.deleted)} expired or revoked refresh tokens.`);
+  async handleCleanup(): Promise<{
+    tokensDeleted: number;
+    unverifiedUsersDeleted: number;
+    verificationTokensDeleted: number;
+  }> {
+    const tokensResult = await this.authService.cleanupExpiredTokens();
+    if (tokensResult.deleted > 0) {
+      this.logger.log(
+        `Cleaned up ${String(tokensResult.deleted)} expired or revoked refresh tokens.`,
+      );
     }
-    return result;
+
+    const unverifiedResult = await this.authService.cleanupUnverifiedUsers();
+    if (unverifiedResult.deleted > 0) {
+      this.logger.log(
+        `Cleaned up ${String(unverifiedResult.deleted)} abandoned unverified user accounts.`,
+      );
+    }
+
+    const verificationTokensResult = await this.authService.cleanupExpiredVerificationTokens();
+    if (verificationTokensResult.deleted > 0) {
+      this.logger.log(
+        `Cleaned up ${String(verificationTokensResult.deleted)} expired email verification tokens.`,
+      );
+    }
+
+    return {
+      tokensDeleted: tokensResult.deleted,
+      unverifiedUsersDeleted: unverifiedResult.deleted,
+      verificationTokensDeleted: verificationTokensResult.deleted,
+    };
   }
 }

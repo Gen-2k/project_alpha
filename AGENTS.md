@@ -97,3 +97,17 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
 - Never scaffold fake apps/packages to exercise tooling; if you must probe
   future paths, create, verify, and delete in the same session.
 - CI (`.github/workflows/ci.yml`) mirrors `check` exactly; keep them in sync.
+
+## Scope & Future Roadmap Decisions
+
+- **In Scope (Planned for Future Platform Implementation)**:
+  - **Roles & Permissions (RBAC)**: Role hierarchy and permission guards (`@Roles(...)`).
+  - **User Profile Extensions**: App-dependent metadata fields on `users` table (schema will expand based on product UI needs).
+  - **Audit Logging**: Dedicated `audit_logs` database table tracking security-sensitive operations (authentication events, password changes, account deletions).
+- **Out of Scope (Deferred / Not Needed for now)**:
+  - Bot Protection (CAPTCHA / Cloudflare Turnstile).
+  - Multi-Factor Authentication (2FA / TOTP).
+  - Social OAuth2 Logins (Google / GitHub SSO).
+- **Architectural Exploration (Deferred to multi-instance/scaling phase)**:
+  - **Distributed Rate Limiting**: Redis-backed storage for `@nestjs/throttler` across multi-container load-balanced deployments.
+  - **Asynchronous Email Queuing**: BullMQ + Redis background workers to decouple SMTP network latency from HTTP requests.

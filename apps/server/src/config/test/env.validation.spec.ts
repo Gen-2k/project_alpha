@@ -20,6 +20,7 @@ describe("validateEnv", () => {
     expect(env.EMAIL_FROM).toBe("Project Alpha <no-reply@projectalpha.local>");
     expect(env.SMTP_HOST).toBeUndefined();
     expect(env.SMTP_SECURE).toBe(false);
+    expect(env.NORMALIZE_EMAIL).toBe(false);
     expect(env.DATABASE_URL).toBe(validBase.DATABASE_URL);
     expect(env.JWT_SECRET).toBe(validBase.JWT_SECRET);
   });
@@ -40,6 +41,7 @@ describe("validateEnv", () => {
       SMTP_SECURE: true,
       SMTP_USER: "user@example.com",
       SMTP_PASS: "pass123",
+      NORMALIZE_EMAIL: true,
     });
     expect(env.NODE_ENV).toBe("production");
     expect(env.LOG_LEVEL).toBe("warn");
@@ -54,6 +56,18 @@ describe("validateEnv", () => {
     expect(env.SMTP_SECURE).toBe(true);
     expect(env.SMTP_USER).toBe("user@example.com");
     expect(env.SMTP_PASS).toBe("pass123");
+    expect(env.NORMALIZE_EMAIL).toBe(true);
+  });
+
+  it("should coerce string truthy values for NORMALIZE_EMAIL", () => {
+    const env1 = validateEnv({ ...validBase, NORMALIZE_EMAIL: "true" });
+    expect(env1.NORMALIZE_EMAIL).toBe(true);
+
+    const env2 = validateEnv({ ...validBase, NORMALIZE_EMAIL: "1" });
+    expect(env2.NORMALIZE_EMAIL).toBe(true);
+
+    const env3 = validateEnv({ ...validBase, NORMALIZE_EMAIL: "false" });
+    expect(env3.NORMALIZE_EMAIL).toBe(false);
   });
 
   it("should throw if JWT_SECRET is shorter than 32 characters", () => {

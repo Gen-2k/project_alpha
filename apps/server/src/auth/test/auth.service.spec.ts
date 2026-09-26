@@ -8,6 +8,20 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { UsersService } from "../../users/users.service.js";
 import { AuthService } from "../auth.service.js";
+import type * as EmailSecurityUtil from "../utils/email-security.util.js";
+
+vi.mock("../utils/email-security.util.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof EmailSecurityUtil>();
+  return {
+    ...actual,
+    checkEmailDomain: vi.fn((domainOrEmail: string) => {
+      if (domainOrEmail.includes("invalid-domain-does-not-exist")) {
+        return Promise.resolve(false);
+      }
+      return Promise.resolve(true);
+    }),
+  };
+});
 
 const TEST_SECRET = "test-secret-that-is-long-enough-for-hs256!!";
 
@@ -35,7 +49,7 @@ interface StoredRefreshRow {
 // Real JwtService (standalone test secret) + real bcrypt hashing; only the
 // persistence layer is faked, as an in-memory refresh-token store plus
 // configurable user stubs. Crypto paths always run for real.
-function setup() {
+function setup(options?: { emailNormalizationEnabled?: boolean }) {
   const inserted: StoredRefreshRow[] = [];
   const selectRows: StoredRefreshRow[] = [];
   const calls = { deleted: 0, updated: 0, transactions: 0 };
@@ -121,6 +135,12 @@ function setup() {
       if (key === "JWT_REFRESH_EXPIRES_IN") return "7d";
       throw new Error(`unexpected config key ${key}`);
     },
+    get: (key: string): unknown => {
+      if (key === "NORMALIZE_EMAIL") {
+        return options?.emailNormalizationEnabled ?? false;
+      }
+      return undefined;
+    },
   } as unknown as ConfigService;
 
   const mail = {
@@ -188,6 +208,45 @@ describe("AuthService", () => {
       await expect(
         service.register({ email: "ada@example.com", password: "correct-horse-1" }),
       ).rejects.toThrow("An account with this email address already exists");
+    });
+
+    it("should reject registration with disposable email", async () => {
+      const { service } = setup();
+      await expect(
+        service.register({ email: "spammer@mailinator.com", password: "correct-horse-1" }),
+      ).rejects.toThrow("Disposable email addresses are not permitted");
+    });
+
+    it("should reject registration with non-existent email domain", async () => {
+      const { service } = setup();
+      await expect(
+        service.register({
+          email: "user@invalid-domain-does-not-exist-998877.xyz",
+          password: "correct-horse-1",
+        }),
+      ).rejects.toThrow("The email domain is invalid or does not accept mail");
+    });
+
+    it("should normalize email when emailNormalizationEnabled is true", async () => {
+      const { service, create } = setup({ emailNormalizationEnabled: true });
+      await service.register({
+        email: "Ada.Lovelace+spam@gmail.com",
+        password: "correct-horse-1",
+      });
+
+      const createdWith = create.mock.calls[0]?.[0];
+      expect(createdWith?.email).toBe("adalovelace@gmail.com");
+    });
+
+    it("should preserve email alias when emailNormalizationEnabled is false", async () => {
+      const { service, create } = setup({ emailNormalizationEnabled: false });
+      await service.register({
+        email: "Ada.Lovelace+test@gmail.com",
+        password: "correct-horse-1",
+      });
+
+      const createdWith = create.mock.calls[0]?.[0];
+      expect(createdWith?.email).toBe("ada.lovelace+test@gmail.com");
     });
   });
 
@@ -835,6 +894,55 @@ describe("AuthService", () => {
         "If an unverified account exists with that email address, a new verification link has been sent. Please check your inbox and spam folder.",
       );
       expect(mail.sendEmailVerificationEmail).not.toHaveBeenCalled();
+    });
+
+    it("should normalize email when emailNormalizationEnabled is true", async () => {
+      const { service, findByEmail } = setup({ emailNormalizationEnabled: true });
+      findByEmail.mockResolvedValueOnce(undefined);
+
+      await service.resendVerification({ email: "Ada.Lovelace+spam@gmail.com" });
+      expect(findByEmail).toHaveBeenCalledWith("adalovelace@gmail.com");
+    });
+  });
+
+  describe("cleanupUnverifiedUsers", () => {
+    it("should delete unverified users older than the cutoff and return count", async () => {
+      const { service, calls } = setup();
+      const result = await service.cleanupUnverifiedUsers(7);
+
+      expect(calls.deleted).toBe(1);
+      expect(result).toEqual({ deleted: 1 });
+    });
+  });
+
+  describe("cleanupExpiredVerificationTokens", () => {
+    it("should delete expired or used verification tokens and return count", async () => {
+      const { service, calls } = setup();
+      const result = await service.cleanupExpiredVerificationTokens();
+
+      expect(calls.deleted).toBe(1);
+      expect(result).toEqual({ deleted: 1 });
+    });
+  });
+
+  describe("email normalization in login and forgotPassword", () => {
+    it("should normalize email in login when enabled", async () => {
+      const { service, findByEmailWithHash } = setup({ emailNormalizationEnabled: true });
+      findByEmailWithHash.mockResolvedValueOnce(undefined);
+
+      await expect(
+        service.login({ email: "User.Name+alias@gmail.com", password: "pwd" }),
+      ).rejects.toThrow("Invalid email or password");
+
+      expect(findByEmailWithHash).toHaveBeenCalledWith("username@gmail.com");
+    });
+
+    it("should normalize email in forgotPassword when enabled", async () => {
+      const { service, findByEmail } = setup({ emailNormalizationEnabled: true });
+      findByEmail.mockResolvedValueOnce(undefined);
+
+      await service.forgotPassword({ email: "User.Name+alias@gmail.com" });
+      expect(findByEmail).toHaveBeenCalledWith("username@gmail.com");
     });
   });
 });

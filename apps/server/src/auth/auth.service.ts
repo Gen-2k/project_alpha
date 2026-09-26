@@ -11,7 +11,12 @@ import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import type { Db } from "@repo/database/client";
 import { DB } from "@repo/database/client";
-import { emailVerificationTokens, passwordResetTokens, refreshTokens } from "@repo/database/schema";
+import {
+  emailVerificationTokens,
+  passwordResetTokens,
+  refreshTokens,
+  users,
+} from "@repo/database/schema";
 import { uuidv7 } from "@repo/database/uuid";
 import type {
   AuthTokens,
@@ -36,6 +41,11 @@ import ms from "ms";
 import { MailService } from "../mail/mail.service.js";
 import { UsersService } from "../users/users.service.js";
 import type { JwtPayload, RefreshPayload, RequestMetadata } from "./auth.types.js";
+import {
+  checkEmailDomain,
+  isDisposableEmail,
+  normalizeEmail,
+} from "./utils/email-security.util.js";
 
 const BCRYPT_COST = 12;
 const ROTATION_GRACE_PERIOD_MS = 30_000;
@@ -66,6 +76,7 @@ export class AuthService {
   // /^\d+[smhd]$/ (a subset of StringValue).
   private readonly accessExpiresInMs: number;
   readonly refreshExpiresInMs: number;
+  private readonly emailNormalizationEnabled: boolean;
 
   constructor(
     private readonly usersService: UsersService,
@@ -78,16 +89,29 @@ export class AuthService {
     this.refreshExpiresInMs = ms(
       config.getOrThrow<string>("JWT_REFRESH_EXPIRES_IN") as StringValue,
     );
+    this.emailNormalizationEnabled =
+      typeof config.get === "function" ? (config.get<boolean>("NORMALIZE_EMAIL") ?? false) : false;
   }
 
   async register(dto: RegisterDto): Promise<RegisterResponseDto> {
-    const existing = await this.usersService.findByEmail(dto.email);
+    const email = normalizeEmail(dto.email, this.emailNormalizationEnabled);
+
+    if (isDisposableEmail(email)) {
+      throw new BadRequestException("Disposable email addresses are not permitted");
+    }
+
+    const hasValidDomain = await checkEmailDomain(email);
+    if (!hasValidDomain) {
+      throw new BadRequestException("The email domain is invalid or does not accept mail");
+    }
+
+    const existing = await this.usersService.findByEmail(email);
     if (existing) {
       throw new ConflictException("An account with this email address already exists");
     }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_COST);
-    const user = await this.usersService.create({ email: dto.email, passwordHash });
+    const user = await this.usersService.create({ email, passwordHash });
 
     const rawToken = randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
@@ -110,7 +134,8 @@ export class AuthService {
   // time (constant-time check against a dummy hash when user is null) to prevent
   // account enumeration via timing attacks (OWASP ASVS 2.8.1).
   async login(dto: LoginDto, meta?: RequestMetadata): Promise<AuthTokens> {
-    const user = await this.usersService.findByEmailWithHash(dto.email);
+    const normalizedEmail = normalizeEmail(dto.email, this.emailNormalizationEnabled);
+    const user = await this.usersService.findByEmailWithHash(normalizedEmail);
     const hashToCompare = user?.passwordHash ?? DUMMY_BCRYPT_HASH;
     const isPasswordValid = await bcrypt.compare(dto.password, hashToCompare);
 
@@ -311,8 +336,29 @@ export class AuthService {
     return { deleted: deletedRows.length };
   }
 
+  async cleanupUnverifiedUsers(retentionDays = 7): Promise<{ deleted: number }> {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+    const deletedRows = await this.db
+      .delete(users)
+      .where(and(isNull(users.emailVerifiedAt), lt(users.createdAt, cutoff)))
+      .returning({ id: users.id });
+    return { deleted: deletedRows.length };
+  }
+
+  async cleanupExpiredVerificationTokens(): Promise<{ deleted: number }> {
+    const now = new Date();
+    const deletedRows = await this.db
+      .delete(emailVerificationTokens)
+      .where(
+        or(lt(emailVerificationTokens.expiresAt, now), isNotNull(emailVerificationTokens.usedAt)),
+      )
+      .returning({ id: emailVerificationTokens.id });
+    return { deleted: deletedRows.length };
+  }
+
   async forgotPassword(dto: ForgotPasswordDto): Promise<MessageResponseDto> {
-    const user = await this.usersService.findByEmail(dto.email);
+    const email = normalizeEmail(dto.email, this.emailNormalizationEnabled);
+    const user = await this.usersService.findByEmail(email);
 
     if (user) {
       // Invalidate any previous unused reset tokens for this user
@@ -482,7 +528,8 @@ export class AuthService {
   }
 
   async resendVerification(dto: ResendVerificationDto): Promise<MessageResponseDto> {
-    const user = await this.usersService.findByEmail(dto.email);
+    const email = normalizeEmail(dto.email, this.emailNormalizationEnabled);
+    const user = await this.usersService.findByEmail(email);
 
     if (user && !user.emailVerifiedAt) {
       // Invalidate existing unused verification tokens for this user

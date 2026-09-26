@@ -30,6 +30,9 @@ const envSchema = z.object({
     .default(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
+  NORMALIZE_EMAIL: z
+    .union([z.boolean(), z.string().transform((val) => val === "true" || val === "1")])
+    .default(false),
 });
 
 export type Env = z.infer<typeof envSchema>;
