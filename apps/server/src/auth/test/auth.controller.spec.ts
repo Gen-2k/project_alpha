@@ -17,6 +17,11 @@ describe("AuthController", () => {
     listSessions: ReturnType<typeof vi.fn>;
     revokeSession: ReturnType<typeof vi.fn>;
     me: ReturnType<typeof vi.fn>;
+    verifyEmail: ReturnType<typeof vi.fn>;
+    resendVerification: ReturnType<typeof vi.fn>;
+    forgotPassword: ReturnType<typeof vi.fn>;
+    resetPassword: ReturnType<typeof vi.fn>;
+    updatePassword: ReturnType<typeof vi.fn>;
   };
   const mockReq = {
     ip: "127.0.0.1",
@@ -32,7 +37,12 @@ describe("AuthController", () => {
   beforeEach(() => {
     authService = {
       refreshExpiresInMs: 604800000,
-      register: vi.fn(() => Promise.resolve({ accessToken: "a", refreshToken: "r", user: {} })),
+      register: vi.fn(() =>
+        Promise.resolve({
+          message: "Registration successful. Please check your email to verify your account.",
+          email: "ada@example.com",
+        }),
+      ),
       login: vi.fn(() => Promise.resolve({ accessToken: "a", refreshToken: "r", user: {} })),
       refresh: vi.fn(() => Promise.resolve({ accessToken: "a2", refreshToken: "r2", user: {} })),
       logout: vi.fn(() => Promise.resolve({ loggedOut: true })),
@@ -40,24 +50,24 @@ describe("AuthController", () => {
       listSessions: vi.fn(() => Promise.resolve([])),
       revokeSession: vi.fn(() => Promise.resolve({ revoked: true })),
       me: vi.fn(() => Promise.resolve({ ok: true })),
+      verifyEmail: vi.fn(() => Promise.resolve({ message: "verified" })),
+      resendVerification: vi.fn(() => Promise.resolve({ message: "resent" })),
+      forgotPassword: vi.fn(() => Promise.resolve({ message: "dispatched" })),
+      resetPassword: vi.fn(() => Promise.resolve({ message: "reset" })),
+      updatePassword: vi.fn(() => Promise.resolve({ message: "changed" })),
     };
     controller = new AuthController(authService as unknown as AuthService);
     vi.clearAllMocks();
   });
 
-  it("should delegate register to the service and set refresh cookie", async () => {
+  it("should delegate register to the service without setting cookies", async () => {
     const dto = { email: "ada@example.com", password: "correct-horse-1" };
-    const res = await controller.register(
-      dto,
-      mockReq as unknown as Request,
-      mockRes as unknown as Response,
-    );
-    expect(authService.register).toHaveBeenCalledWith(dto, {
-      ipAddress: "127.0.0.1",
-      userAgent: "test-agent",
+    const res = await controller.register(dto);
+    expect(authService.register).toHaveBeenCalledWith(dto);
+    expect(res).toEqual({
+      message: "Registration successful. Please check your email to verify your account.",
+      email: "ada@example.com",
     });
-    expect(mockRes.cookie).toHaveBeenCalledWith("refreshToken", "r", expect.any(Object));
-    expect(res).toMatchObject({ accessToken: "a", refreshToken: "r" });
   });
 
   it("should delegate login to the service and set refresh cookie", async () => {
@@ -75,26 +85,12 @@ describe("AuthController", () => {
     expect(res).toMatchObject({ accessToken: "a", refreshToken: "r" });
   });
 
-  it("should delegate refresh via body and set new cookie", async () => {
-    const res = await controller.refresh(
-      { refreshToken: "token" },
-      mockReq as unknown as Request,
-      mockRes as unknown as Response,
-    );
-    expect(authService.refresh).toHaveBeenCalledWith(
-      { refreshToken: "token" },
-      { ipAddress: "127.0.0.1", userAgent: "test-agent" },
-    );
-    expect(mockRes.cookie).toHaveBeenCalledWith("refreshToken", "r2", expect.any(Object));
-    expect(res).toMatchObject({ accessToken: "a2", refreshToken: "r2" });
-  });
-
-  it("should delegate refresh via cookie when body is empty", async () => {
+  it("should delegate refresh via cookie and set new cookie", async () => {
     const cookieReq = {
       ...mockReq,
       cookies: { refreshToken: "cookie-token" },
     } as unknown as Request;
-    const res = await controller.refresh({}, cookieReq, mockRes as unknown as Response);
+    const res = await controller.refresh(cookieReq, mockRes as unknown as Response);
     expect(authService.refresh).toHaveBeenCalledWith(
       { refreshToken: "cookie-token" },
       { ipAddress: "127.0.0.1", userAgent: "test-agent" },
@@ -103,35 +99,24 @@ describe("AuthController", () => {
     expect(res).toMatchObject({ accessToken: "a2", refreshToken: "r2" });
   });
 
-  it("should throw UnauthorizedException if refresh token is missing from both cookie and body", async () => {
+  it("should throw UnauthorizedException if refresh token cookie is missing", async () => {
     await expect(
-      controller.refresh({}, mockReq as unknown as Request, mockRes as unknown as Response),
-    ).rejects.toThrow("Refresh token is required via cookie or body");
+      controller.refresh(mockReq as unknown as Request, mockRes as unknown as Response),
+    ).rejects.toThrow("A refresh token cookie must be provided");
   });
 
-  it("should throw UnauthorizedException if refreshToken in body is empty", async () => {
-    await expect(
-      controller.refresh(
-        { refreshToken: "" },
-        mockReq as unknown as Request,
-        mockRes as unknown as Response,
-      ),
-    ).rejects.toThrow("Refresh token is required via cookie or body");
-  });
-
-  it("should delegate logout with body token and clear cookie", async () => {
-    await controller.logout(
-      { refreshToken: "token" },
-      mockReq as unknown as Request,
-      mockRes as unknown as Response,
-    );
+  it("should delegate logout with cookie token and clear cookie", async () => {
+    const cookieReq = {
+      ...mockReq,
+      cookies: { refreshToken: "cookie-token" },
+    } as unknown as Request;
+    await controller.logout(cookieReq, mockRes as unknown as Response);
     expect(mockRes.clearCookie).toHaveBeenCalledWith("refreshToken", expect.any(Object));
-    expect(authService.logout).toHaveBeenCalledWith({ refreshToken: "token" });
+    expect(authService.logout).toHaveBeenCalledWith({ refreshToken: "cookie-token" });
   });
 
-  it("should succeed logout without token and clear cookie", async () => {
+  it("should succeed logout without cookie token and clear cookie", async () => {
     const result = await controller.logout(
-      {},
       mockReq as unknown as Request,
       mockRes as unknown as Response,
     );
@@ -162,5 +147,47 @@ describe("AuthController", () => {
   it("should pass the token subject to me()", async () => {
     await controller.me(mockReq as unknown as AuthenticatedRequest);
     expect(authService.me).toHaveBeenCalledWith("user-1");
+  });
+
+  it("should delegate verifyEmail to authService.verifyEmail", async () => {
+    const dto = { token: "verify-token-123" };
+    const res = await controller.verifyEmail(dto);
+    expect(authService.verifyEmail).toHaveBeenCalledWith(dto);
+    expect(res).toEqual({ message: "verified" });
+  });
+
+  it("should delegate resendVerification to authService.resendVerification", async () => {
+    const dto = { email: "ada@example.com" };
+    const res = await controller.resendVerification(dto);
+    expect(authService.resendVerification).toHaveBeenCalledWith(dto);
+    expect(res).toEqual({ message: "resent" });
+  });
+
+  it("should delegate forgotPassword to authService.forgotPassword", async () => {
+    const dto = { email: "ada@example.com" };
+    const res = await controller.forgotPassword(dto);
+    expect(authService.forgotPassword).toHaveBeenCalledWith(dto);
+    expect(res).toEqual({ message: "dispatched" });
+  });
+
+  it("should delegate resetPassword to authService.resetPassword", async () => {
+    const dto = { token: "token-123", newPassword: "fresh-new-password-1" };
+    const res = await controller.resetPassword(dto);
+    expect(authService.resetPassword).toHaveBeenCalledWith(dto);
+    expect(res).toEqual({ message: "reset" });
+  });
+
+  it("should delegate updatePassword to authService.updatePassword with extracted refresh token", async () => {
+    const dto = { currentPassword: "old-1", newPassword: "new-2" };
+    const reqWithCookie = {
+      ...mockReq,
+      cookies: { refreshToken: "cookie-refresh-token" },
+    };
+    const res = await controller.updatePassword(
+      dto,
+      reqWithCookie as unknown as AuthenticatedRequest,
+    );
+    expect(authService.updatePassword).toHaveBeenCalledWith("user-1", dto, "cookie-refresh-token");
+    expect(res).toEqual({ message: "changed" });
   });
 });

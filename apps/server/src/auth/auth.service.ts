@@ -1,33 +1,53 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import type { Db } from "@repo/database/client";
 import { DB } from "@repo/database/client";
-import { refreshTokens } from "@repo/database/schema";
+import { emailVerificationTokens, passwordResetTokens, refreshTokens } from "@repo/database/schema";
 import { uuidv7 } from "@repo/database/uuid";
 import type {
   AuthTokens,
+  ForgotPasswordDto,
   LoginDto,
+  MessageResponseDto,
   RefreshDto,
   RegisterDto,
+  RegisterResponseDto,
+  ResendVerificationDto,
+  ResetPasswordDto,
   SafeUser,
   SessionDto,
+  UpdatePasswordDto,
+  VerifyEmailDto,
 } from "@repo/validation/auth";
 import bcrypt from "bcryptjs";
-import { and, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import type { StringValue } from "ms";
 import ms from "ms";
 
+import { MailService } from "../mail/mail.service.js";
 import { UsersService } from "../users/users.service.js";
 import type { JwtPayload, RefreshPayload, RequestMetadata } from "./auth.types.js";
 
 const BCRYPT_COST = 12;
 const ROTATION_GRACE_PERIOD_MS = 30_000;
+const RESET_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
+const VERIFICATION_TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000;
 // Precomputed bcrypt cost-12 hash used to equalize execution time on unknown email
 // so attackers cannot perform timing attacks to enumerate registered accounts (OWASP ASVS 2.8.1).
 const DUMMY_BCRYPT_HASH = "$2b$12$e8nGyvKz8vK5e.gM1L9OVuP4oN1D4hJ7gP.5rM.1gV8z7k0s3y1a2";
+const GENERIC_FORGOT_PASSWORD_MESSAGE =
+  "If an account exists with that email address, password reset instructions have been sent. Please check your inbox and spam folder.";
+const GENERIC_RESEND_VERIFICATION_MESSAGE =
+  "If an unverified account exists with that email address, a new verification link has been sent. Please check your inbox and spam folder.";
 
 export type { AuthTokens };
 
@@ -52,6 +72,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     config: ConfigService,
     @Inject(DB) private readonly db: Db,
+    private readonly mailService: MailService,
   ) {
     this.accessExpiresInMs = ms(config.getOrThrow<string>("JWT_ACCESS_EXPIRES_IN") as StringValue);
     this.refreshExpiresInMs = ms(
@@ -59,14 +80,30 @@ export class AuthService {
     );
   }
 
-  async register(dto: RegisterDto, meta?: RequestMetadata): Promise<AuthTokens> {
+  async register(dto: RegisterDto): Promise<RegisterResponseDto> {
     const existing = await this.usersService.findByEmail(dto.email);
-    if (existing) throw new ConflictException("Email already registered");
+    if (existing) {
+      throw new ConflictException("An account with this email address already exists");
+    }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_COST);
     const user = await this.usersService.create({ email: dto.email, passwordHash });
-    const familyId = uuidv7();
-    return this.issueTokens(user, familyId, meta);
+
+    const rawToken = randomBytes(32).toString("hex");
+    const tokenHash = hashToken(rawToken);
+
+    await this.db.insert(emailVerificationTokens).values({
+      userId: user.id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + VERIFICATION_TOKEN_LIFETIME_MS),
+    });
+
+    await this.mailService.sendEmailVerificationEmail(user.email, rawToken);
+
+    return {
+      message: "Registration successful. Please check your email to verify your account.",
+      email: user.email,
+    };
   }
 
   // Unknown email and wrong password fail identically in both message and execution
@@ -78,13 +115,20 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(dto.password, hashToCompare);
 
     if (!user || !isPasswordValid) {
-      throw new UnauthorizedException("Invalid credentials");
+      throw new UnauthorizedException("Invalid email or password");
     }
+
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException(
+        "Please verify your email address before logging in. Check your inbox or request a new verification link.",
+      );
+    }
+
     // Strip the hash explicitly (field by field, no rest-destructure):
     // what leaves this method is provably hash-free by construction.
-    const { id, email, createdAt, updatedAt } = user;
+    const { id, email, emailVerifiedAt, createdAt, updatedAt } = user;
     const familyId = uuidv7();
-    return this.issueTokens({ id, email, createdAt, updatedAt }, familyId, meta);
+    return this.issueTokens({ id, email, emailVerifiedAt, createdAt, updatedAt }, familyId, meta);
   }
 
   async refresh(dto: RefreshDto, meta?: RequestMetadata): Promise<AuthTokens> {
@@ -216,7 +260,7 @@ export class AuthService {
 
   async me(userId: string): Promise<SafeUser> {
     const user = await this.usersService.findById(userId);
-    if (!user) throw new UnauthorizedException("Invalid credentials");
+    if (!user) throw new UnauthorizedException("User profile not found");
     return user;
   }
 
@@ -267,11 +311,200 @@ export class AuthService {
     return { deleted: deletedRows.length };
   }
 
+  async forgotPassword(dto: ForgotPasswordDto): Promise<MessageResponseDto> {
+    const user = await this.usersService.findByEmail(dto.email);
+
+    if (user) {
+      // Invalidate any previous unused reset tokens for this user
+      await this.db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, user.id));
+
+      const rawToken = randomBytes(32).toString("hex");
+      const tokenHash = hashToken(rawToken);
+
+      await this.db.insert(passwordResetTokens).values({
+        userId: user.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + RESET_TOKEN_LIFETIME_MS),
+      });
+
+      await this.mailService.sendPasswordResetEmail(user.email, rawToken);
+    } else {
+      // Equalize execution time on unknown email to defend against timing oracle (OWASP ASVS 2.8.1)
+      await bcrypt.compare(dto.email, DUMMY_BCRYPT_HASH);
+    }
+
+    return { message: GENERIC_FORGOT_PASSWORD_MESSAGE };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<MessageResponseDto> {
+    const tokenHash = hashToken(dto.token);
+    const now = new Date();
+
+    const [record] = await this.db
+      .select()
+      .from(passwordResetTokens)
+      .where(
+        and(
+          eq(passwordResetTokens.tokenHash, tokenHash),
+          isNull(passwordResetTokens.usedAt),
+          gt(passwordResetTokens.expiresAt, now),
+        ),
+      );
+
+    if (!record) {
+      throw new BadRequestException("The password reset token is invalid or has expired");
+    }
+
+    const newPasswordHash = await bcrypt.hash(dto.newPassword, BCRYPT_COST);
+
+    await this.db.transaction(async (tx) => {
+      const updated = await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(and(eq(passwordResetTokens.id, record.id), isNull(passwordResetTokens.usedAt)))
+        .returning({ id: passwordResetTokens.id });
+
+      if (updated.length === 0) {
+        throw new BadRequestException("The password reset token is invalid or has expired");
+      }
+
+      await this.usersService.updatePassword(record.userId, newPasswordHash, tx);
+
+      // Revoke ALL refresh tokens belonging to the user across all devices (RFC / OWASP requirement)
+      await tx.delete(refreshTokens).where(eq(refreshTokens.userId, record.userId));
+    });
+
+    const user = await this.usersService.findById(record.userId);
+    if (user) {
+      await this.mailService.sendPasswordChangedNotification(user.email);
+    }
+
+    return {
+      message:
+        "Your password has been successfully reset. You may now log in with your new password.",
+    };
+  }
+
+  async updatePassword(
+    userId: string,
+    dto: UpdatePasswordDto,
+    currentRefreshToken?: string,
+  ): Promise<MessageResponseDto> {
+    const user = await this.usersService.findByIdWithHash(userId);
+    if (!user) {
+      throw new UnauthorizedException("User profile not found");
+    }
+
+    const isCurrentValid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!isCurrentValid) {
+      throw new UnauthorizedException("The current password provided is incorrect");
+    }
+
+    const newPasswordHash = await bcrypt.hash(dto.newPassword, BCRYPT_COST);
+    await this.usersService.updatePassword(userId, newPasswordHash);
+
+    // Identify current familyId if current refresh token was supplied via cookie or body
+    let currentFamilyId: string | undefined;
+    if (currentRefreshToken) {
+      const tokenHash = hashToken(currentRefreshToken);
+      const [stored] = await this.db
+        .select({ familyId: refreshTokens.familyId })
+        .from(refreshTokens)
+        .where(eq(refreshTokens.tokenHash, tokenHash));
+      currentFamilyId = stored?.familyId;
+    }
+
+    // Revoke all other device sessions for this user, keeping the current device session active.
+    // If no current session token was provided, revoke all sessions as a fail-safe measure.
+    if (currentFamilyId) {
+      await this.db
+        .delete(refreshTokens)
+        .where(and(eq(refreshTokens.userId, userId), ne(refreshTokens.familyId, currentFamilyId)));
+    } else {
+      await this.db.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
+    }
+
+    await this.mailService.sendPasswordChangedNotification(user.email);
+
+    return {
+      message:
+        "Your password has been successfully updated. All other active sessions have been signed out.",
+    };
+  }
+
   async revokeFamily(familyId: string): Promise<void> {
     await this.db.delete(refreshTokens).where(eq(refreshTokens.familyId, familyId));
   }
 
   private async revokeAll(userId: string): Promise<void> {
     await this.db.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
+  }
+
+  async verifyEmail(dto: VerifyEmailDto): Promise<MessageResponseDto> {
+    const tokenHash = hashToken(dto.token);
+    const now = new Date();
+
+    const [record] = await this.db
+      .select()
+      .from(emailVerificationTokens)
+      .where(
+        and(
+          eq(emailVerificationTokens.tokenHash, tokenHash),
+          isNull(emailVerificationTokens.usedAt),
+          gt(emailVerificationTokens.expiresAt, now),
+        ),
+      );
+
+    if (!record) {
+      throw new BadRequestException("The email verification token is invalid or has expired");
+    }
+
+    await this.db.transaction(async (tx) => {
+      const updated = await tx
+        .update(emailVerificationTokens)
+        .set({ usedAt: new Date() })
+        .where(
+          and(eq(emailVerificationTokens.id, record.id), isNull(emailVerificationTokens.usedAt)),
+        )
+        .returning({ id: emailVerificationTokens.id });
+
+      if (updated.length === 0) {
+        throw new BadRequestException("The email verification token is invalid or has expired");
+      }
+
+      await this.usersService.markEmailVerified(record.userId, tx);
+    });
+
+    return {
+      message:
+        "Your email has been successfully verified. You may now log in with your credentials.",
+    };
+  }
+
+  async resendVerification(dto: ResendVerificationDto): Promise<MessageResponseDto> {
+    const user = await this.usersService.findByEmail(dto.email);
+
+    if (user && !user.emailVerifiedAt) {
+      // Invalidate existing unused verification tokens for this user
+      await this.db
+        .delete(emailVerificationTokens)
+        .where(eq(emailVerificationTokens.userId, user.id));
+
+      const rawToken = randomBytes(32).toString("hex");
+      const tokenHash = hashToken(rawToken);
+
+      await this.db.insert(emailVerificationTokens).values({
+        userId: user.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + VERIFICATION_TOKEN_LIFETIME_MS),
+      });
+
+      await this.mailService.sendEmailVerificationEmail(user.email, rawToken);
+    } else {
+      // Anti-enumeration timing defense
+      await bcrypt.compare(dto.email, DUMMY_BCRYPT_HASH);
+    }
+
+    return { message: GENERIC_RESEND_VERIFICATION_MESSAGE };
   }
 }

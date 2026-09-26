@@ -13,6 +13,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware.j
 import { validateEnv } from "./config/env.validation.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { HealthModule } from "./health/health.module.js";
+import { MailModule } from "./mail/mail.module.js";
 import { UsersModule } from "./users/users.module.js";
 
 @Module({
@@ -33,10 +34,12 @@ import { UsersModule } from "./users/users.module.js";
       },
     ]),
     DatabaseModule,
+    MailModule,
     UsersModule,
     AuthModule,
     HealthModule,
   ],
+
   providers: [
     {
       provide: APP_GUARD,

@@ -16,6 +16,10 @@ describe("validateEnv", () => {
     expect(env.CORS_ORIGIN).toBe("http://localhost:3000");
     expect(env.JWT_ACCESS_EXPIRES_IN).toBe("15m");
     expect(env.JWT_REFRESH_EXPIRES_IN).toBe("7d");
+    expect(env.FRONTEND_URL).toBe("http://localhost:3000");
+    expect(env.EMAIL_FROM).toBe("Project Alpha <no-reply@projectalpha.local>");
+    expect(env.SMTP_HOST).toBeUndefined();
+    expect(env.SMTP_SECURE).toBe(false);
     expect(env.DATABASE_URL).toBe(validBase.DATABASE_URL);
     expect(env.JWT_SECRET).toBe(validBase.JWT_SECRET);
   });
@@ -29,6 +33,13 @@ describe("validateEnv", () => {
       CORS_ORIGIN: "https://example.com,https://app.example.com",
       JWT_ACCESS_EXPIRES_IN: "30m",
       JWT_REFRESH_EXPIRES_IN: "14d",
+      FRONTEND_URL: "https://alpha.example.com",
+      EMAIL_FROM: "Custom <noreply@example.com>",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_PORT: 587,
+      SMTP_SECURE: true,
+      SMTP_USER: "user@example.com",
+      SMTP_PASS: "pass123",
     });
     expect(env.NODE_ENV).toBe("production");
     expect(env.LOG_LEVEL).toBe("warn");
@@ -36,6 +47,13 @@ describe("validateEnv", () => {
     expect(env.CORS_ORIGIN).toBe("https://example.com,https://app.example.com");
     expect(env.JWT_ACCESS_EXPIRES_IN).toBe("30m");
     expect(env.JWT_REFRESH_EXPIRES_IN).toBe("14d");
+    expect(env.FRONTEND_URL).toBe("https://alpha.example.com");
+    expect(env.EMAIL_FROM).toBe("Custom <noreply@example.com>");
+    expect(env.SMTP_HOST).toBe("smtp.example.com");
+    expect(env.SMTP_PORT).toBe(587);
+    expect(env.SMTP_SECURE).toBe(true);
+    expect(env.SMTP_USER).toBe("user@example.com");
+    expect(env.SMTP_PASS).toBe("pass123");
   });
 
   it("should throw if JWT_SECRET is shorter than 32 characters", () => {
@@ -90,5 +108,25 @@ describe("validateEnv", () => {
         NODE_ENV: "staging_invalid",
       }),
     ).toThrow("Invalid environment variables");
+  });
+
+  it("should transform string representations of SMTP_SECURE to boolean", () => {
+    const envTrue = validateEnv({
+      ...validBase,
+      SMTP_SECURE: "true",
+    });
+    expect(envTrue.SMTP_SECURE).toBe(true);
+
+    const envOne = validateEnv({
+      ...validBase,
+      SMTP_SECURE: "1",
+    });
+    expect(envOne.SMTP_SECURE).toBe(true);
+
+    const envFalse = validateEnv({
+      ...validBase,
+      SMTP_SECURE: "false",
+    });
+    expect(envFalse.SMTP_SECURE).toBe(false);
   });
 });

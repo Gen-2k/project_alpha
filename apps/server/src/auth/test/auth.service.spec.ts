@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
+
 import type { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
+import type { SafeUser } from "@repo/validation/auth";
 import bcrypt from "bcryptjs";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,9 +11,10 @@ import { AuthService } from "../auth.service.js";
 
 const TEST_SECRET = "test-secret-that-is-long-enough-for-hs256!!";
 
-const safeUser = {
+const safeUser: SafeUser = {
   id: "11111111-1111-4111-8111-111111111111",
   email: "ada@example.com",
+  emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 };
@@ -25,6 +29,7 @@ interface StoredRefreshRow {
   expiresAt: Date;
   createdAt?: Date;
   revokedAt?: Date | null;
+  usedAt?: Date | null;
 }
 
 // Real JwtService (standalone test secret) + real bcrypt hashing; only the
@@ -89,12 +94,26 @@ function setup() {
       Promise.resolve(undefined),
   );
   const findById = vi.fn((): Promise<typeof safeUser | undefined> => Promise.resolve(undefined));
+  const findByIdWithHash = vi.fn(
+    (): Promise<(typeof safeUser & { passwordHash: string }) | undefined> =>
+      Promise.resolve(undefined),
+  );
+  const updatePassword = vi.fn((): Promise<void> => Promise.resolve());
+  const markEmailVerified = vi.fn((): Promise<void> => Promise.resolve());
   // Like a real DB `returning(safeColumns)` clause: echoes back only the
   // safe fields, never what was handed in (in particular, no passwordHash).
   const create = vi.fn((input: { email: string; passwordHash: string }): Promise<typeof safeUser> =>
     Promise.resolve({ ...safeUser, email: input.email }),
   );
-  const users = { findByEmail, findByEmailWithHash, findById, create } as unknown as UsersService;
+  const users = {
+    findByEmail,
+    findByEmailWithHash,
+    findById,
+    findByIdWithHash,
+    updatePassword,
+    markEmailVerified,
+    create,
+  } as unknown as UsersService;
 
   const config = {
     getOrThrow: (key: string): string => {
@@ -104,11 +123,18 @@ function setup() {
     },
   } as unknown as ConfigService;
 
+  const mail = {
+    sendEmailVerificationEmail: vi.fn(() => Promise.resolve()),
+    sendPasswordResetEmail: vi.fn(() => Promise.resolve()),
+    sendPasswordChangedNotification: vi.fn(() => Promise.resolve()),
+  };
+
   const service = new AuthService(
     users,
     new JwtService({ secret: TEST_SECRET }),
     config,
     db as never,
+    mail as never,
   );
 
   return {
@@ -116,7 +142,11 @@ function setup() {
     findByEmail,
     findByEmailWithHash,
     findById,
+    findByIdWithHash,
+    updatePassword,
+    markEmailVerified,
     create,
+    mail,
     db,
     inserted,
     selectRows,
@@ -126,24 +156,30 @@ function setup() {
 
 describe("AuthService", () => {
   describe("register", () => {
-    it("should hash the password and issue tokens with metadata", async () => {
-      const { service, create, inserted } = setup();
-      const result = await service.register(
-        { email: "ada@example.com", password: "correct-horse-1" },
-        { ipAddress: "127.0.0.1", userAgent: "test-agent" },
-      );
+    it("should create unverified user, store verification token, and send verification email", async () => {
+      const { service, create, inserted, mail } = setup();
+      const result = await service.register({
+        email: "ada@example.com",
+        password: "correct-horse-1",
+      });
 
       expect(create).toHaveBeenCalledOnce();
       const createdWith = create.mock.calls[0]?.[0];
       expect(createdWith?.email).toBe("ada@example.com");
       expect(createdWith?.passwordHash).not.toBe("correct-horse-1");
       expect(await bcrypt.compare("correct-horse-1", createdWith?.passwordHash ?? "")).toBe(true);
-      expect(result.user).toEqual(safeUser);
-      expect("passwordHash" in result.user).toBe(false);
-      expect(typeof result.accessToken).toBe("string");
-      expect(typeof result.refreshToken).toBe("string");
-      expect(inserted[0]?.ipAddress).toBe("127.0.0.1");
-      expect(inserted[0]?.userAgent).toBe("test-agent");
+      expect(result).toEqual({
+        message: "Registration successful. Please check your email to verify your account.",
+        email: "ada@example.com",
+      });
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0]?.userId).toBe(safeUser.id);
+      expect(typeof inserted[0]?.tokenHash).toBe("string");
+      expect(inserted[0]?.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      expect(mail.sendEmailVerificationEmail).toHaveBeenCalledWith(
+        "ada@example.com",
+        expect.any(String),
+      );
     });
 
     it("should reject duplicate emails", async () => {
@@ -151,7 +187,7 @@ describe("AuthService", () => {
       findByEmail.mockResolvedValueOnce(safeUser);
       await expect(
         service.register({ email: "ada@example.com", password: "correct-horse-1" }),
-      ).rejects.toThrow("Email already registered");
+      ).rejects.toThrow("An account with this email address already exists");
     });
   });
 
@@ -168,11 +204,26 @@ describe("AuthService", () => {
       expect(typeof result.accessToken).toBe("string");
     });
 
+    it("should reject unverified users", async () => {
+      const { service, findByEmailWithHash } = setup();
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValueOnce({
+        ...safeUser,
+        emailVerifiedAt: null,
+        passwordHash,
+      });
+      await expect(
+        service.login({ email: "ada@example.com", password: "correct-horse-1" }),
+      ).rejects.toThrow(
+        "Please verify your email address before logging in. Check your inbox or request a new verification link.",
+      );
+    });
+
     it("should fail identically for unknown email and wrong password", async () => {
       const unknown = setup();
       await expect(
         unknown.service.login({ email: "nobody@example.com", password: "whatever-123" }),
-      ).rejects.toThrow("Invalid credentials");
+      ).rejects.toThrow("Invalid email or password");
 
       const { service: wrongService, findByEmailWithHash: findHash } = setup();
       const passwordHash = await bcrypt.hash("correct-horse-1", 4);
@@ -182,16 +233,21 @@ describe("AuthService", () => {
       });
       await expect(
         wrongService.login({ email: "ada@example.com", password: "wrong-password-1" }),
-      ).rejects.toThrow("Invalid credentials");
+      ).rejects.toThrow("Invalid email or password");
     });
   });
 
   describe("refresh", () => {
     it("should rotate: new pair issued and old token marked rotated", async () => {
-      const { service, findById, inserted, selectRows, calls } = setup();
+      const { service, findById, findByEmailWithHash, inserted, selectRows, calls } = setup();
       findById.mockResolvedValue(safeUser);
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValue({
+        ...safeUser,
+        passwordHash,
+      });
 
-      const first = await service.register({
+      const first = await service.login({
         email: "ada@example.com",
         password: "correct-horse-1",
       });
@@ -213,10 +269,15 @@ describe("AuthService", () => {
     });
 
     it("should revoke token family if rotated token is replayed after grace period", async () => {
-      const { service, findById, inserted, selectRows, calls } = setup();
+      const { service, findById, findByEmailWithHash, inserted, selectRows, calls } = setup();
       findById.mockResolvedValue(safeUser);
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValue({
+        ...safeUser,
+        passwordHash,
+      });
 
-      const first = await service.register({
+      const first = await service.login({
         email: "ada@example.com",
         password: "correct-horse-1",
       });
@@ -235,9 +296,15 @@ describe("AuthService", () => {
     });
 
     it("should reject expired stored rows", async () => {
-      const { service, findById, selectRows, calls } = setup();
+      const { service, findById, findByEmailWithHash, selectRows, calls } = setup();
       findById.mockResolvedValue(safeUser);
-      const first = await service.register({
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValue({
+        ...safeUser,
+        passwordHash,
+      });
+
+      const first = await service.login({
         email: "ada@example.com",
         password: "correct-horse-1",
       });
@@ -285,9 +352,15 @@ describe("AuthService", () => {
     });
 
     it("should reject refresh if user no longer exists", async () => {
-      const { service, findById, inserted, selectRows } = setup();
+      const { service, findById, findByEmailWithHash, inserted, selectRows } = setup();
       findById.mockResolvedValue(safeUser);
-      const first = await service.register({
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValue({
+        ...safeUser,
+        passwordHash,
+      });
+
+      const first = await service.login({
         email: "ada@example.com",
         password: "correct-horse-1",
       });
@@ -302,9 +375,15 @@ describe("AuthService", () => {
     });
 
     it("should fail and propagate error if atomic rotation transaction throws", async () => {
-      const { service, findById, inserted, selectRows, db } = setup();
+      const { service, findById, findByEmailWithHash, inserted, selectRows, db } = setup();
       findById.mockResolvedValue(safeUser);
-      const first = await service.register({
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValue({
+        ...safeUser,
+        passwordHash,
+      });
+
+      const first = await service.login({
         email: "ada@example.com",
         password: "correct-horse-1",
       });
@@ -317,6 +396,36 @@ describe("AuthService", () => {
         "DB transaction failed",
       );
     });
+
+    it("should throw UnauthorizedException when refresh token rotation update affects 0 rows", async () => {
+      const { service, findById, findByEmailWithHash, inserted, selectRows, db } = setup();
+      findById.mockResolvedValue(safeUser);
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValue({
+        ...safeUser,
+        passwordHash,
+      });
+
+      const first = await service.login({
+        email: "ada@example.com",
+        password: "correct-horse-1",
+      });
+      const storedRow = inserted[0];
+      if (!storedRow) throw new Error("expected stored row");
+      selectRows.push({ ...storedRow });
+
+      (db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+        set: () => ({
+          where: () => ({
+            returning: () => Promise.resolve([]),
+          }),
+        }),
+      });
+
+      await expect(service.refresh({ refreshToken: first.refreshToken })).rejects.toThrow(
+        "Token already rotated",
+      );
+    });
   });
 
   describe("sessions and logout", () => {
@@ -325,6 +434,20 @@ describe("AuthService", () => {
       await expect(service.logout({ refreshToken: "unknown" })).resolves.toEqual({
         loggedOut: true,
       });
+    });
+
+    it("should revoke token family on logout when token exists in database", async () => {
+      const { service, selectRows, calls } = setup();
+      selectRows.push({
+        familyId: "logout-family-1",
+        userId: safeUser.id,
+        tokenHash: "hashed-token",
+        expiresAt: new Date(Date.now() + 10000),
+      });
+      await expect(service.logout({ refreshToken: "known-token" })).resolves.toEqual({
+        loggedOut: true,
+      });
+      expect(calls.deleted).toBe(1);
     });
 
     it("should revoke all sessions on logoutAll", async () => {
@@ -419,7 +542,7 @@ describe("AuthService", () => {
 
     it("should reject deleted users", async () => {
       const { service } = setup();
-      await expect(service.me("missing")).rejects.toThrow("Invalid credentials");
+      await expect(service.me("missing")).rejects.toThrow("User profile not found");
     });
   });
 
@@ -440,6 +563,278 @@ describe("AuthService", () => {
       });
       const result = await service.cleanupExpiredTokens();
       expect(result).toEqual({ deleted: 0 });
+    });
+  });
+
+  describe("forgotPassword", () => {
+    it("should send reset email and return generic message when user exists", async () => {
+      const { service, findByEmail, mail, calls } = setup();
+      findByEmail.mockResolvedValueOnce(safeUser);
+
+      const result = await service.forgotPassword({ email: "ada@example.com" });
+      expect(result.message).toBe(
+        "If an account exists with that email address, password reset instructions have been sent. Please check your inbox and spam folder.",
+      );
+      expect(mail.sendPasswordResetEmail).toHaveBeenCalledWith(
+        "ada@example.com",
+        expect.any(String),
+      );
+      expect(calls.deleted).toBe(1); // Deleted prior reset tokens
+    });
+
+    it("should return identical generic message and skip mail when user does not exist", async () => {
+      const { service, findByEmail, mail } = setup();
+      findByEmail.mockResolvedValueOnce(undefined);
+
+      const result = await service.forgotPassword({ email: "ghost@example.com" });
+      expect(result.message).toBe(
+        "If an account exists with that email address, password reset instructions have been sent. Please check your inbox and spam folder.",
+      );
+      expect(mail.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("resetPassword", () => {
+    it("should update password, mark token as used, and revoke all sessions when token is valid", async () => {
+      const { service, selectRows, updatePassword, findById, mail } = setup();
+      selectRows.push({
+        id: "reset-token-id",
+        userId: safeUser.id,
+        tokenHash: "any-hash",
+        expiresAt: new Date(Date.now() + 60000),
+      });
+
+      findById.mockResolvedValueOnce(safeUser);
+
+      const result = await service.resetPassword({
+        token: "plain-token-string",
+        newPassword: "fresh-new-password-123",
+      });
+
+      expect(result.message).toContain("Your password has been successfully reset");
+      expect(updatePassword).toHaveBeenCalledWith(
+        safeUser.id,
+        expect.any(String),
+        expect.anything(),
+      );
+      expect(mail.sendPasswordChangedNotification).toHaveBeenCalledWith(safeUser.email);
+    });
+
+    it("should throw BadRequestException when token is expired or not found", async () => {
+      const { service } = setup();
+      // default setup has empty selectRows -> token not found
+
+      await expect(
+        service.resetPassword({
+          token: "invalid-or-expired-token",
+          newPassword: "fresh-new-password-123",
+        }),
+      ).rejects.toThrow("The password reset token is invalid or has expired");
+    });
+
+    it("should throw BadRequestException when reset password token update race condition occurs", async () => {
+      const { service, selectRows, db } = setup();
+      selectRows.push({
+        id: "reset-token-id",
+        userId: safeUser.id,
+        tokenHash: "any-hash",
+        expiresAt: new Date(Date.now() + 60000),
+      });
+
+      (db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+        set: () => ({
+          where: () => ({
+            returning: () => Promise.resolve([]),
+          }),
+        }),
+      });
+
+      await expect(
+        service.resetPassword({
+          token: "plain-token-string",
+          newPassword: "fresh-new-password-123",
+        }),
+      ).rejects.toThrow("The password reset token is invalid or has expired");
+    });
+  });
+
+  describe("updatePassword", () => {
+    it("should verify current password, update password, and notify user", async () => {
+      const { service, findByIdWithHash, updatePassword, mail } = setup();
+      const currentPassword = "old-password-123";
+      const currentPasswordHash = await bcrypt.hash(currentPassword, 10);
+      findByIdWithHash.mockResolvedValueOnce({
+        ...safeUser,
+        passwordHash: currentPasswordHash,
+      });
+
+      const result = await service.updatePassword(safeUser.id, {
+        currentPassword,
+        newPassword: "brand-new-password-456",
+      });
+
+      expect(result.message).toBe(
+        "Your password has been successfully updated. All other active sessions have been signed out.",
+      );
+      expect(updatePassword).toHaveBeenCalledWith(safeUser.id, expect.any(String));
+      expect(mail.sendPasswordChangedNotification).toHaveBeenCalledWith(safeUser.email);
+    });
+
+    it("should throw UnauthorizedException when current password is wrong", async () => {
+      const { service, findByIdWithHash, updatePassword } = setup();
+      const currentPasswordHash = await bcrypt.hash("correct-password-123", 10);
+      findByIdWithHash.mockResolvedValueOnce({
+        ...safeUser,
+        passwordHash: currentPasswordHash,
+      });
+
+      await expect(
+        service.updatePassword(safeUser.id, {
+          currentPassword: "wrong-password",
+          newPassword: "brand-new-password-456",
+        }),
+      ).rejects.toThrow("The current password provided is incorrect");
+      expect(updatePassword).not.toHaveBeenCalled();
+    });
+
+    it("should throw UnauthorizedException when user does not exist", async () => {
+      const { service, findByIdWithHash } = setup();
+      findByIdWithHash.mockResolvedValueOnce(undefined);
+
+      await expect(
+        service.updatePassword("unknown-id", {
+          currentPassword: "any-password",
+          newPassword: "brand-new-password-456",
+        }),
+      ).rejects.toThrow("User profile not found");
+    });
+
+    it("should revoke other device sessions while preserving current session when currentRefreshToken is provided", async () => {
+      const { service, findByIdWithHash, selectRows, calls } = setup();
+      const currentPassword = "old-password-123";
+      const currentPasswordHash = await bcrypt.hash(currentPassword, 10);
+      findByIdWithHash.mockResolvedValueOnce({
+        ...safeUser,
+        passwordHash: currentPasswordHash,
+      });
+
+      const currentRefreshToken = "active-device-refresh-token";
+      selectRows.push({
+        familyId: "device-1-family",
+        userId: safeUser.id,
+        tokenHash: createHash("sha256").update(currentRefreshToken).digest("hex"),
+        expiresAt: new Date(Date.now() + 60000),
+      });
+
+      const result = await service.updatePassword(
+        safeUser.id,
+        { currentPassword, newPassword: "brand-new-password-456" },
+        currentRefreshToken,
+      );
+
+      expect(result.message).toContain("Your password has been successfully updated");
+      expect(calls.deleted).toBe(1);
+    });
+  });
+
+  describe("verifyEmail", () => {
+    it("should verify email and mark used when token is valid and unexpired", async () => {
+      const { service, selectRows, markEmailVerified } = setup();
+      const rawToken = "valid-email-verification-token-string";
+      const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+      selectRows.push({
+        id: "verification-token-id",
+        userId: safeUser.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 60000),
+      });
+
+      const result = await service.verifyEmail({ token: rawToken });
+
+      expect(result.message).toBe(
+        "Your email has been successfully verified. You may now log in with your credentials.",
+      );
+      expect(markEmailVerified).toHaveBeenCalledWith(safeUser.id, expect.anything());
+    });
+
+    it("should throw BadRequestException when token is invalid or expired", async () => {
+      const { service } = setup();
+
+      await expect(service.verifyEmail({ token: "non-existent-or-expired-token" })).rejects.toThrow(
+        "The email verification token is invalid or has expired",
+      );
+    });
+
+    it("should throw BadRequestException when token update race condition occurs", async () => {
+      const { service, selectRows, db } = setup();
+      const rawToken = "race-condition-token";
+      const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+      selectRows.push({
+        id: "verification-token-id",
+        userId: safeUser.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 60000),
+      });
+
+      // Mock update within transaction to return empty array
+      (db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+        set: () => ({
+          where: () => ({
+            returning: () => Promise.resolve([]),
+          }),
+        }),
+      });
+
+      await expect(service.verifyEmail({ token: rawToken })).rejects.toThrow(
+        "The email verification token is invalid or has expired",
+      );
+    });
+  });
+
+  describe("resendVerification", () => {
+    it("should invalidate old tokens, generate fresh token, and send email when user is unverified", async () => {
+      const { service, findByEmail, mail, calls, inserted } = setup();
+      findByEmail.mockResolvedValueOnce({
+        ...safeUser,
+        emailVerifiedAt: null,
+      });
+
+      const result = await service.resendVerification({ email: "ada@example.com" });
+
+      expect(result.message).toBe(
+        "If an unverified account exists with that email address, a new verification link has been sent. Please check your inbox and spam folder.",
+      );
+      expect(calls.deleted).toBe(1);
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0]?.userId).toBe(safeUser.id);
+      expect(mail.sendEmailVerificationEmail).toHaveBeenCalledWith(
+        "ada@example.com",
+        expect.any(String),
+      );
+    });
+
+    it("should return generic message and avoid sending email if user is already verified", async () => {
+      const { service, findByEmail, mail } = setup();
+      findByEmail.mockResolvedValueOnce(safeUser);
+
+      const result = await service.resendVerification({ email: "ada@example.com" });
+
+      expect(result.message).toBe(
+        "If an unverified account exists with that email address, a new verification link has been sent. Please check your inbox and spam folder.",
+      );
+      expect(mail.sendEmailVerificationEmail).not.toHaveBeenCalled();
+    });
+
+    it("should return generic message and run anti-enumeration timing check when user does not exist", async () => {
+      const { service, findByEmail, mail } = setup();
+      findByEmail.mockResolvedValueOnce(undefined);
+
+      const result = await service.resendVerification({ email: "ghost@example.com" });
+
+      expect(result.message).toBe(
+        "If an unverified account exists with that email address, a new verification link has been sent. Please check your inbox and spam folder.",
+      );
+      expect(mail.sendEmailVerificationEmail).not.toHaveBeenCalled();
     });
   });
 });

@@ -21,6 +21,15 @@ const envSchema = z.object({
     .string()
     .regex(/^\d+[smhd]$/)
     .default("7d"),
+  FRONTEND_URL: z.url().default("http://localhost:3000"),
+  EMAIL_FROM: z.string().default("Project Alpha <no-reply@projectalpha.local>"),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  SMTP_SECURE: z
+    .union([z.boolean(), z.string().transform((val) => val === "true" || val === "1")])
+    .default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -21,7 +21,15 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import { loginSchema, registerSchema } from "@repo/validation/auth";
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  registerSchema,
+  resendVerificationSchema,
+  resetPasswordSchema,
+  updatePasswordSchema,
+  verifyEmailSchema,
+} from "@repo/validation/auth";
 import type { Request, Response } from "express";
 
 import { ApiErrorResponseDto } from "../common/dto/error-response.dto.js";
@@ -32,17 +40,32 @@ import { extractRequestMetadata } from "./auth.types.js";
 import {
   AuthTokensResponseDto,
   LogoutResponseDto,
+  MessageResponseDto,
+  RegisterResponseDto,
   RevokeSessionResponseDto,
   SessionResponseDto,
   UserResponseDto,
 } from "./dto/auth-response.dto.js";
+import { ForgotPasswordDto } from "./dto/forgot-password.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
-import { RefreshDto } from "./dto/refresh.dto.js";
 import { RegisterDto } from "./dto/register.dto.js";
+import { ResendVerificationDto } from "./dto/resend-verification.dto.js";
+import { ResetPasswordDto } from "./dto/reset-password.dto.js";
+import { UpdatePasswordDto } from "./dto/update-password.dto.js";
+import { VerifyEmailDto } from "./dto/verify-email.dto.js";
 import { Public } from "./public.decorator.js";
 
 export const REFRESH_COOKIE_NAME = "refreshToken";
 export const REFRESH_COOKIE_PATH = "/api/v1/auth";
+
+export function clearRefreshTokenCookie(res: Response): void {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: REFRESH_COOKIE_PATH,
+  });
+}
 
 @ApiTags("auth")
 @Controller("auth")
@@ -54,14 +77,13 @@ export class AuthController {
   @Post("register")
   @ApiOperation({
     summary: "Register a new user",
-    description:
-      "Creates user credentials, sets an HttpOnly refresh cookie, and returns access and refresh tokens.",
+    description: "Creates an unverified user account and dispatches an email verification link.",
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
     status: 201,
-    type: AuthTokensResponseDto,
-    description: "User registered; tokens issued.",
+    type: RegisterResponseDto,
+    description: "User registered; email verification link dispatched.",
   })
   @ApiResponse({ status: 400, type: ApiErrorResponseDto, description: "Body failed validation." })
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Email already registered." })
@@ -71,14 +93,8 @@ export class AuthController {
     description: "Too many requests; rate limit exceeded.",
   })
   @UsePipes(new ZodValidationPipe(registerSchema))
-  async register(
-    @Body() dto: RegisterDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const result = await this.authService.register(dto, extractRequestMetadata(req));
-    this.setRefreshTokenCookie(res, result.refreshToken);
-    return result;
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
   }
 
   @Public()
@@ -116,9 +132,8 @@ export class AuthController {
   @ApiOperation({
     summary: "Rotate a refresh token into a fresh pair",
     description:
-      "Rotates a refresh token supplied via HttpOnly cookie or request body into a new token pair.",
+      "Rotates the refresh token supplied via HttpOnly cookie into a new token pair and sets a fresh cookie.",
   })
-  @ApiBody({ type: RefreshDto, required: false })
   @ApiResponse({
     status: 200,
     type: AuthTokensResponseDto,
@@ -127,21 +142,17 @@ export class AuthController {
   @ApiResponse({
     status: 401,
     type: ApiErrorResponseDto,
-    description: "Invalid, expired, or reused token.",
+    description: "Missing, expired, or invalid refresh token cookie.",
   })
   @ApiResponse({
     status: 429,
     type: ApiErrorResponseDto,
     description: "Too many requests; rate limit exceeded.",
   })
-  async refresh(
-    @Body() body: unknown,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const token = this.extractRefreshToken(req, body);
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const token = this.extractRefreshToken(req);
     if (!token) {
-      throw new UnauthorizedException("Refresh token is required via cookie or body");
+      throw new UnauthorizedException("A refresh token cookie must be provided");
     }
 
     const result = await this.authService.refresh(
@@ -156,19 +167,14 @@ export class AuthController {
   @Post("logout")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Invalidate a refresh token",
+    summary: "Invalidate the current session",
     description:
       "Clears the HttpOnly refresh cookie and deletes the token from database if present (always succeeds).",
   })
-  @ApiBody({ type: RefreshDto, required: false })
   @ApiResponse({ status: 200, type: LogoutResponseDto, description: "Logged out successfully." })
-  async logout(
-    @Body() body: unknown,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    this.clearRefreshTokenCookie(res);
-    const token = this.extractRefreshToken(req, body);
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const token = this.extractRefreshToken(req);
+    clearRefreshTokenCookie(res);
     if (token) {
       return this.authService.logout({ refreshToken: token });
     }
@@ -222,6 +228,154 @@ export class AuthController {
     return this.authService.me(req.user.sub);
   }
 
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post("verify-email")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Verify account email address",
+    description:
+      "Validates email verification token, marks user email as verified, and directs user to login.",
+  })
+  @ApiBody({ type: VerifyEmailDto })
+  @ApiResponse({
+    status: 200,
+    type: MessageResponseDto,
+    description: "Email verified successfully.",
+  })
+  @ApiResponse({
+    status: 400,
+    type: ApiErrorResponseDto,
+    description: "Invalid or expired verification token.",
+  })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
+  @UsePipes(new ZodValidationPipe(verifyEmailSchema))
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 900000 } })
+  @Post("resend-verification")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Resend email verification link",
+    description:
+      "Dispatches a new email verification token if the account exists and is unverified. Always returns 200 to prevent user enumeration.",
+  })
+  @ApiBody({ type: ResendVerificationDto })
+  @ApiResponse({
+    status: 200,
+    type: MessageResponseDto,
+    description: "Verification link dispatched if account is unverified.",
+  })
+  @ApiResponse({ status: 400, type: ApiErrorResponseDto, description: "Body failed validation." })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
+  @UsePipes(new ZodValidationPipe(resendVerificationSchema))
+  resendVerification(@Body() dto: ResendVerificationDto) {
+    return this.authService.resendVerification(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 900000 } })
+  @Post("forgot-password")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Request password reset email",
+    description:
+      "Initiates password recovery. Always returns 200 with an identical message to prevent account enumeration.",
+  })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({
+    status: 200,
+    type: MessageResponseDto,
+    description: "Password reset instructions dispatched if email exists.",
+  })
+  @ApiResponse({ status: 400, type: ApiErrorResponseDto, description: "Body failed validation." })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
+  @UsePipes(new ZodValidationPipe(forgotPasswordSchema))
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post("reset-password")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Reset password using reset token",
+    description:
+      "Validates the reset token, updates account password, and revokes all active refresh tokens across devices.",
+  })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({
+    status: 200,
+    type: MessageResponseDto,
+    description: "Password reset successful.",
+  })
+  @ApiResponse({
+    status: 400,
+    type: ApiErrorResponseDto,
+    description: "Invalid or expired token, or invalid password.",
+  })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
+  @UsePipes(new ZodValidationPipe(resetPasswordSchema))
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
+  }
+
+  @Post("update-password")
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth("JWT-auth")
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: "Update account password for authenticated user",
+    description:
+      "Verifies current password, updates to new password, and revokes all other device sessions.",
+  })
+  @ApiBody({ type: UpdatePasswordDto })
+  @ApiResponse({
+    status: 200,
+    type: MessageResponseDto,
+    description: "Password updated successfully.",
+  })
+  @ApiResponse({
+    status: 400,
+    type: ApiErrorResponseDto,
+    description: "New password cannot match current password, or failed validation.",
+  })
+  @ApiResponse({
+    status: 401,
+    type: ApiErrorResponseDto,
+    description: "Current password incorrect or invalid bearer token.",
+  })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
+  @UsePipes(new ZodValidationPipe(updatePasswordSchema))
+  updatePassword(@Body() dto: UpdatePasswordDto, @Req() req: AuthenticatedRequest) {
+    const currentRefreshToken = this.extractRefreshToken(req);
+    return this.authService.updatePassword(req.user.sub, dto, currentRefreshToken);
+  }
+
   private setRefreshTokenCookie(res: Response, token: string): void {
     res.cookie(REFRESH_COOKIE_NAME, token, {
       httpOnly: true,
@@ -233,21 +387,10 @@ export class AuthController {
   }
 
   private clearRefreshTokenCookie(res: Response): void {
-    res.clearCookie(REFRESH_COOKIE_NAME, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: REFRESH_COOKIE_PATH,
-    });
+    clearRefreshTokenCookie(res);
   }
 
-  private extractRefreshToken(req: Request, body?: unknown): string | undefined {
-    if (body && typeof body === "object" && "refreshToken" in body) {
-      const bodyToken = (body as Record<string, unknown>).refreshToken;
-      if (typeof bodyToken === "string" && bodyToken.length > 0) {
-        return bodyToken;
-      }
-    }
+  private extractRefreshToken(req: Request): string | undefined {
     const cookieToken = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE_NAME];
     if (typeof cookieToken === "string" && cookieToken.length > 0) {
       return cookieToken;

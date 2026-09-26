@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 const safeUserColumns = {
   id: users.id,
   email: users.email,
+  emailVerifiedAt: users.emailVerifiedAt,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
 };
@@ -43,16 +44,47 @@ export class UsersService {
     return row;
   }
 
+  // Auth-internal only: authenticated password operations verify the hash
+  // for the current bearer user.
+  async findByIdWithHash(id: string): Promise<User | undefined> {
+    const [row] = await this.db.select().from(users).where(eq(users.id, id));
+    return row;
+  }
+
+  async updatePassword(
+    id: string,
+    passwordHash: string,
+    executor: Pick<Db, "update"> = this.db,
+  ): Promise<void> {
+    await executor
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async markEmailVerified(id: string, executor: Pick<Db, "update"> = this.db): Promise<void> {
+    await executor
+      .update(users)
+      .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.delete(users).where(eq(users.id, id));
+  }
+
   // No existence pre-check here: the unique constraint is the source of
   // truth, which also closes the check-then-insert race. Both paths
   // report the same ConflictException (no oracle either way).
   async create(input: NewUser): Promise<SafeUser> {
     try {
       const [row] = await this.db.insert(users).values(input).returning(safeUserColumns);
-      if (!row) throw new Error("User insert returned no row");
+      if (!row) throw new Error("Failed to create user record");
       return row;
     } catch (error) {
-      if (isUniqueViolation(error)) throw new ConflictException("Email already registered");
+      if (isUniqueViolation(error)) {
+        throw new ConflictException("An account with this email address already exists");
+      }
       throw error;
     }
   }

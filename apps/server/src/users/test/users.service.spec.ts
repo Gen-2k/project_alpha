@@ -6,6 +6,7 @@ import { UsersService } from "../users.service.js";
 const safeRow = {
   id: "11111111-1111-4111-8111-111111111111",
   email: "ada@example.com",
+  emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 };
@@ -17,6 +18,8 @@ function fakeDb(options?: {
   selectRows?: unknown[];
   insertRows?: unknown[];
   insertError?: Error;
+  updateSpy?: () => void;
+  deleteSpy?: () => void;
 }): Db {
   const selectRows = options?.selectRows ?? [safeRow];
   return {
@@ -34,6 +37,20 @@ function fakeDb(options?: {
           return Promise.resolve(options?.insertRows ?? [safeRow]);
         },
       }),
+    }),
+    update: () => ({
+      set: () => ({
+        where: () => {
+          options?.updateSpy?.();
+          return Promise.resolve();
+        },
+      }),
+    }),
+    delete: () => ({
+      where: () => {
+        options?.deleteSpy?.();
+        return Promise.resolve();
+      },
     }),
   } as unknown as Db;
 }
@@ -80,6 +97,50 @@ describe("UsersService", () => {
     });
   });
 
+  describe("findByIdWithHash", () => {
+    it("should return full user row including passwordHash by id", async () => {
+      const fullRow = { ...safeRow, passwordHash: "hashed-pw" };
+      const user = await new UsersService(fakeDb({ selectRows: [fullRow] })).findByIdWithHash(
+        safeRow.id,
+      );
+      expect(user).toEqual(fullRow);
+    });
+
+    it("should return undefined for unknown id", async () => {
+      const user = await new UsersService(fakeDb({ selectRows: [] })).findByIdWithHash(
+        "unknown-id",
+      );
+      expect(user).toBeUndefined();
+    });
+  });
+
+  describe("updatePassword", () => {
+    it("should execute update with new passwordHash", async () => {
+      let updated = false;
+      const service = new UsersService(fakeDb({ updateSpy: () => (updated = true) }));
+      await service.updatePassword(safeRow.id, "new-hash");
+      expect(updated).toBe(true);
+    });
+  });
+
+  describe("markEmailVerified", () => {
+    it("should execute update with emailVerifiedAt", async () => {
+      let updated = false;
+      const service = new UsersService(fakeDb({ updateSpy: () => (updated = true) }));
+      await service.markEmailVerified(safeRow.id);
+      expect(updated).toBe(true);
+    });
+  });
+
+  describe("delete", () => {
+    it("should execute delete for user id", async () => {
+      let deleted = false;
+      const service = new UsersService(fakeDb({ deleteSpy: () => (deleted = true) }));
+      await service.delete(safeRow.id);
+      expect(deleted).toBe(true);
+    });
+  });
+
   describe("create", () => {
     it("should create without ever exposing passwordHash", async () => {
       const created = await new UsersService(fakeDb()).create({
@@ -94,7 +155,7 @@ describe("UsersService", () => {
       const service = new UsersService(fakeDb({ insertRows: [] }));
       await expect(
         service.create({ email: "ada@example.com", passwordHash: "hashed" }),
-      ).rejects.toThrow("User insert returned no row");
+      ).rejects.toThrow("Failed to create user record");
     });
 
     it("should map duplicate emails to ConflictException", async () => {
@@ -105,7 +166,7 @@ describe("UsersService", () => {
       const service = new UsersService(fakeDb({ insertError: uniqueViolation }));
       await expect(
         service.create({ email: "ada@example.com", passwordHash: "hashed" }),
-      ).rejects.toThrow("Email already registered");
+      ).rejects.toThrow("An account with this email address already exists");
     });
 
     it("should rethrow non-unique errors untouched", async () => {

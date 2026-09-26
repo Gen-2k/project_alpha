@@ -15,6 +15,13 @@ export class UserResponseDto implements SafeUser {
   })
   email!: string;
 
+  @ApiPropertyOptional({
+    example: "2026-09-25T12:05:00.000Z",
+    description: "Timestamp when email was verified (null if unverified)",
+    nullable: true,
+  })
+  emailVerifiedAt!: Date | null;
+
   @ApiProperty({
     example: "2026-09-25T12:00:00.000Z",
     description: "Creation timestamp in UTC",
@@ -102,4 +109,26 @@ export class RevokeSessionResponseDto {
     description: "Indicates successful revocation of the requested session",
   })
   revoked!: true;
+}
+
+export class MessageResponseDto {
+  @ApiProperty({
+    example: "Operation completed successfully.",
+    description: "Status message",
+  })
+  message!: string;
+}
+
+export class RegisterResponseDto {
+  @ApiProperty({
+    example: "Registration successful. Please check your email to verify your account.",
+    description: "Status message instructing the user to verify their email address",
+  })
+  message!: string;
+
+  @ApiProperty({
+    example: "ada@example.com",
+    description: "Normalized email address that received the verification link",
+  })
+  email!: string;
 }

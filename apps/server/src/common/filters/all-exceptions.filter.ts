@@ -43,7 +43,8 @@ function deriveErrorCode(status: number, message: string, hasIssues: boolean): s
     case 400:
       return hasIssues || /validation/i.test(message) ? "VALIDATION_FAILED" : "BAD_REQUEST";
     case 401:
-      if (/invalid credentials/i.test(message)) return "INVALID_CREDENTIALS";
+      if (/verify your email/i.test(message)) return "EMAIL_NOT_VERIFIED";
+      if (/invalid (credentials|email or password)/i.test(message)) return "INVALID_CREDENTIALS";
       if (/token (already )?rotated|token reuse|revoked/i.test(message)) return "TOKEN_REVOKED";
       return "UNAUTHORIZED";
     case 403:

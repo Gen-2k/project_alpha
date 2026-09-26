@@ -172,4 +172,33 @@ describe("createLoggerConfig", () => {
     );
     expect(msg).toBe("POST /api/v1/auth/login 200 - 46ms [reqId=trace-xyz]");
   });
+
+  it("formats custom error messages with error message and request ID", () => {
+    const config = mockConfig({ NODE_ENV: "development" });
+    const params = createLoggerConfig(config);
+    const opts = params.pinoHttp as Record<string, unknown>;
+    const customErrorMessage = opts.customErrorMessage as (
+      req: IncomingMessage & { id?: string },
+      res: ServerResponse,
+      err: Error,
+    ) => string;
+
+    const msg = customErrorMessage(
+      { method: "POST", url: "/api/v1/auth/login", id: "trace-xyz" } as IncomingMessage & {
+        id?: string;
+      },
+      { statusCode: 500 } as ServerResponse,
+      new Error("Database connection timed out"),
+    );
+    expect(msg).toBe(
+      "POST /api/v1/auth/login 500 - Database connection timed out [reqId=trace-xyz]",
+    );
+
+    const msgFallback = customErrorMessage(
+      {} as IncomingMessage & { id?: string },
+      { statusCode: 500 } as ServerResponse,
+      new Error("Internal error"),
+    );
+    expect(msgFallback).toBe("UNKNOWN / 500 - Internal error");
+  });
 });

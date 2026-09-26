@@ -31,6 +31,7 @@ catalog:
   cookie-parser: ^1.4.7
   helmet: ^8.0.0
   ms: ^2.0.0
+  nodemailer: ^6.10.0
   zod: ^4.6.5
   reflect-metadata: ^0.2.2
   rxjs: ^7.8.1
@@ -44,7 +45,9 @@ catalog:
   "@types/express": ^5.0.0
   "@types/ms": ^2.1.0
   "@types/node": ^24.0.0
+  "@types/nodemailer": ^6.4.17
   "@types/supertest": ^7.0.0
+
   vitest: ^4.1.2
   "@vitest/coverage-v8": ^4.1.2
   "@vitest/ui": ^4.1.2

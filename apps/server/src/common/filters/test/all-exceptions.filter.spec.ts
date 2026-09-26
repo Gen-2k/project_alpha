@@ -101,6 +101,15 @@ describe("AllExceptionsFilter", () => {
     let body = mockJson.mock.calls[0]?.[0] as ApiErrorResponse;
     expect(body.code).toBe("INVALID_CREDENTIALS");
 
+    // 401 Email not verified
+    mockJson.mockClear();
+    filter.catch(
+      new UnauthorizedException("Please verify your email address before logging in."),
+      mockHost,
+    );
+    body = mockJson.mock.calls[0]?.[0] as ApiErrorResponse;
+    expect(body.code).toBe("EMAIL_NOT_VERIFIED");
+
     // 401 Token rotated
     mockJson.mockClear();
     filter.catch(new UnauthorizedException("Token already rotated"), mockHost);
