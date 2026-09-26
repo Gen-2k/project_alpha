@@ -892,13 +892,16 @@
                   "});",
                   "pm.test('Requires refresh token in cookie or body', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json.message).to.include('Refresh token is required');",
+                  "    pm.expect(json.message || '').to.include('Refresh token is required');",
                   "});"
                 ],
                 "type": "text/javascript"
               }
             }
           ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          },
           "request": {
             "method": "POST",
             "header": [
