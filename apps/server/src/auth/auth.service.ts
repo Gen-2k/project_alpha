@@ -283,12 +283,6 @@ export class AuthService {
     return { revoked: true as const };
   }
 
-  async me(userId: string): Promise<SafeUser> {
-    const user = await this.usersService.findById(userId);
-    if (!user) throw new UnauthorizedException("User profile not found");
-    return user;
-  }
-
   private async issueTokens(
     user: SafeUser,
     familyId: string,

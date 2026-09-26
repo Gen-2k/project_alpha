@@ -592,19 +592,6 @@ describe("AuthService", () => {
     });
   });
 
-  describe("me", () => {
-    it("should return the user", async () => {
-      const { service, findById } = setup();
-      findById.mockResolvedValueOnce(safeUser);
-      await expect(service.me(safeUser.id)).resolves.toEqual(safeUser);
-    });
-
-    it("should reject deleted users", async () => {
-      const { service } = setup();
-      await expect(service.me("missing")).rejects.toThrow("User profile not found");
-    });
-  });
-
   describe("cleanupExpiredTokens", () => {
     it("should delete expired and revoked tokens and return count", async () => {
       const { service, calls } = setup();

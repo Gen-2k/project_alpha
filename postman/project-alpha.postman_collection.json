@@ -1236,45 +1236,6 @@
           }
         },
         {
-          "name": "Get Profile via Auth Route (/auth/me)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test('Returns safe user object', function () {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.email).to.eql(pm.variables.get('verifiedEmail') || 'verified@example.com');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{accessToken}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/me",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "me"]
-            }
-          }
-        },
-        {
           "name": "Token Type Confusion - Forged Token as Bearer (401 Unauthorized)",
           "event": [
             {

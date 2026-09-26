@@ -16,7 +16,6 @@ describe("AuthController", () => {
     logoutAll: ReturnType<typeof vi.fn>;
     listSessions: ReturnType<typeof vi.fn>;
     revokeSession: ReturnType<typeof vi.fn>;
-    me: ReturnType<typeof vi.fn>;
     verifyEmail: ReturnType<typeof vi.fn>;
     resendVerification: ReturnType<typeof vi.fn>;
     forgotPassword: ReturnType<typeof vi.fn>;
@@ -49,7 +48,6 @@ describe("AuthController", () => {
       logoutAll: vi.fn(() => Promise.resolve({ loggedOut: true })),
       listSessions: vi.fn(() => Promise.resolve([])),
       revokeSession: vi.fn(() => Promise.resolve({ revoked: true })),
-      me: vi.fn(() => Promise.resolve({ ok: true })),
       verifyEmail: vi.fn(() => Promise.resolve({ message: "verified" })),
       resendVerification: vi.fn(() => Promise.resolve({ message: "resent" })),
       forgotPassword: vi.fn(() => Promise.resolve({ message: "dispatched" })),
@@ -142,11 +140,6 @@ describe("AuthController", () => {
   it("should delegate revokeSession to the service with userId and sessionId", async () => {
     await controller.revokeSession("session-123", mockReq as unknown as AuthenticatedRequest);
     expect(authService.revokeSession).toHaveBeenCalledWith("user-1", "session-123");
-  });
-
-  it("should pass the token subject to me()", async () => {
-    await controller.me(mockReq as unknown as AuthenticatedRequest);
-    expect(authService.me).toHaveBeenCalledWith("user-1");
   });
 
   it("should delegate verifyEmail to authService.verifyEmail", async () => {

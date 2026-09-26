@@ -44,7 +44,6 @@ import {
   RegisterResponseDto,
   RevokeSessionResponseDto,
   SessionResponseDto,
-  UserResponseDto,
 } from "./dto/auth-response.dto.js";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
@@ -217,15 +216,6 @@ export class AuthController {
   @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
   revokeSession(@Param("id") sessionId: string, @Req() req: AuthenticatedRequest) {
     return this.authService.revokeSession(req.user.sub, sessionId);
-  }
-
-  @Get("me")
-  @ApiBearerAuth("JWT-auth")
-  @ApiOperation({ summary: "Current user from the bearer token" })
-  @ApiResponse({ status: 200, type: UserResponseDto, description: "Authenticated user." })
-  @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
-  me(@Req() req: AuthenticatedRequest) {
-    return this.authService.me(req.user.sub);
   }
 
   @Public()
