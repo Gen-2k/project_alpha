@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "c71a3d92-12ef-4f91-8892-9a004b31e920",
     "name": "Project Alpha API - Complete Test Suite",
-    "description": "Production-grade Postman collection covering Authentication, Token Families, Session Management, Token Rotation, User Identity, and Service Health probes.\n\n### Features\n- **Automated Token Chaining**: Login & Register tests automatically save `accessToken`, `refreshToken`, `sessionId`, and `familyId` into collection variables.\n- **Automated Dynamic Data**: Unique emails generated dynamically per run using timestamps (`ada_<timestamp>@example.com`).\n- **OWASP Security Verification**: Tests for Token Type Confusion, Constant-Time Login, Concurrency Race Conditions, and RFC 6819 Device Session Isolation.\n- **Full Edge-Case Coverage**: 2xx Success, 400 Validation, 401 Unauthorized, 409 Conflict, and Rate Limiting.",
+    "description": "Production-grade Postman collection covering Authentication, Token Families, Session Management, Token Rotation, User Identity, and Service Health probes.\n\n### Features\n- **Automated Token Chaining**: Login & Register tests automatically save `accessToken`, `refreshToken`, `sessionId`, and `familyId` into collection variables.\n- **Automated Dynamic Data**: Unique emails generated dynamically per run using timestamps (`ada_<timestamp>@example.com`).\n- **OWASP Security Verification**: Tests for Token Type Confusion, Constant-Time Login, Concurrency Race Conditions, and RFC 6819 Device Session Isolation.\n- **Full Edge-Case Coverage**: 2xx Success, 400 Validation (min length, max 72 bcrypt limit, malformed email), 401 Unauthorized (missing, expired, malformed, rotated, forged), 409 Conflict, and Rate Limiting.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -236,7 +236,30 @@
                 "type": "text/javascript"
               }
             }
-          ]
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{dynamicEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "register"]
+            }
+          }
         },
         {
           "name": "Register - Invalid Email Format (400 Bad Request)",
@@ -313,6 +336,50 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"short_pwd@example.com\",\n  \"password\": \"12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Register - Password Exceeds 72 Chars (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Refuses passwords > 72 chars to prevent bcrypt truncation', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('VALIDATION_FAILED');",
+                  "    pm.expect(json.issues.some(i => i.path === 'password')).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"toolong_pwd@example.com\",\n  \"password\": \"this-password-is-way-too-long-because-it-exceeds-the-seventy-two-byte-limit-of-bcrypt\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -466,6 +533,49 @@
               "path": ["api", "v1", "auth", "login"]
             }
           }
+        },
+        {
+          "name": "Login - Missing Fields (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Validation failed on missing required fields', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('VALIDATION_FAILED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
         }
       ]
     },
@@ -581,6 +691,46 @@
                 {
                   "key": "token",
                   "value": "{{refreshToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Get Profile - Malformed Bearer Token (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Rejects malformed signature with UNAUTHORIZED code', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(json.message).to.eql('Invalid or expired token');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "not-a-valid-jwt-token-string",
                   "type": "string"
                 }
               ]
@@ -721,6 +871,49 @@
           }
         },
         {
+          "name": "Refresh Token - Missing Token (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Requires refresh token in cookie or body', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.include('Refresh token is required');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "refresh"]
+            }
+          }
+        },
+        {
           "name": "Refresh Token - Forged Signature (401 Unauthorized)",
           "event": [
             {
@@ -801,6 +994,35 @@
                 }
               ]
             },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "sessions"]
+            }
+          }
+        },
+        {
+          "name": "List Sessions - Unauthenticated (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Protected session endpoint rejects unauthenticated request', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.code).to.eql('UNAUTHORIZED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
             "method": "GET",
             "header": [],
             "url": {
