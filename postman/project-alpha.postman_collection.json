@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "c71a3d92-12ef-4f91-8892-9a004b31e920",
     "name": "Project Alpha API - Complete Test Suite",
-    "description": "Production-grade Postman collection covering Authentication, Session Management, Token Rotation, User Identity, and Service Health probes.\n\n### Features\n- **Automated Token Chaining**: Login & Register tests automatically save `accessToken` and `refreshToken` into collection variables.\n- **Automated Dynamic Data**: Unique emails generated dynamically per run using timestamps.\n- **Full Edge-Case Coverage**: 2xx Success, 400 Validation, 401 Unauthorized, 409 Conflict, and Rate Limiting tests.",
+    "description": "Production-grade Postman collection covering Authentication, Token Families, Session Management, Token Rotation, User Identity, and Service Health probes.\n\n### Features\n- **Automated Token Chaining**: Login & Register tests automatically save `accessToken`, `refreshToken`, `sessionId`, and `familyId` into collection variables.\n- **Automated Dynamic Data**: Unique emails generated dynamically per run using timestamps (`ada_<timestamp>@example.com`).\n- **OWASP Security Verification**: Tests for Token Type Confusion, Constant-Time Login, Concurrency Race Conditions, and RFC 6819 Device Session Isolation.\n- **Full Edge-Case Coverage**: 2xx Success, 400 Validation, 401 Unauthorized, 409 Conflict, and Rate Limiting.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -32,7 +32,17 @@
       "type": "string"
     },
     {
+      "key": "oldRotatedToken",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "sessionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "familyId",
       "value": "",
       "type": "string"
     }
@@ -226,30 +236,7 @@
                 "type": "text/javascript"
               }
             }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{dynamicEmail}}\",\n  \"password\": \"{{password}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "register"]
-            }
-          }
+          ]
         },
         {
           "name": "Register - Invalid Email Format (400 Bad Request)",
@@ -343,7 +330,7 @@
     },
     {
       "name": "03. Authentication (Login)",
-      "description": "User credential verification and token exchange.",
+      "description": "User credential verification, timing attack defense, and token issuance.",
       "item": [
         {
           "name": "Login - Success (200 OK)",
@@ -437,7 +424,7 @@
           }
         },
         {
-          "name": "Login - Unknown Email (401 Unauthorized)",
+          "name": "Login - Unknown Email (401 Constant-Time Anti-Enumeration)",
           "event": [
             {
               "listen": "test",
@@ -483,8 +470,8 @@
       ]
     },
     {
-      "name": "04. User Profile & Identity",
-      "description": "Authenticated user identity inspection.",
+      "name": "04. User Profile & Guard Security",
+      "description": "Authenticated user identity inspection and OWASP ASVS V3.5.3 Token Type Confusion defenses.",
       "item": [
         {
           "name": "Get Current User Profile (/users/me)",
@@ -569,7 +556,46 @@
           }
         },
         {
-          "name": "Get Profile - Unauthenticated (401 Unauthorized)",
+          "name": "Token Type Confusion - Refresh Token as Bearer (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Guard rejects refresh token from Bearer route (OWASP ASVS V3.5.3)', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql('Invalid token type');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{refreshToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Get Profile - Missing Bearer Token (401 Unauthorized)",
           "event": [
             {
               "listen": "test",
@@ -600,8 +626,8 @@
       ]
     },
     {
-      "name": "05. Token Refresh & Rotation",
-      "description": "Rotating refresh token lifecycle, replay detection, and grace periods.",
+      "name": "05. Token Refresh & Family Rotation",
+      "description": "RFC 6819 rotating refresh token lifecycle, atomic concurrency locks, and grace periods.",
       "item": [
         {
           "name": "Refresh Token - Success Rotation (200 OK)",
@@ -652,7 +678,7 @@
           }
         },
         {
-          "name": "Refresh Token - Replay Rotated Token (401 Unauthorized)",
+          "name": "Refresh Token - Concurrency Grace Period (401 Token already rotated)",
           "event": [
             {
               "listen": "test",
@@ -661,9 +687,9 @@
                   "pm.test('Status code is 401 Unauthorized', function () {",
                   "    pm.response.to.have.status(401);",
                   "});",
-                  "pm.test('Replay attack is blocked with TOKEN_REVOKED code', function () {",
+                  "pm.test('Double submit within grace window returns Token already rotated', function () {",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json.code).to.eql('TOKEN_REVOKED');",
+                  "    pm.expect(json.message).to.eql('Token already rotated');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -695,7 +721,7 @@
           }
         },
         {
-          "name": "Refresh Token - Forged Token (401 Unauthorized)",
+          "name": "Refresh Token - Forged Signature (401 Unauthorized)",
           "event": [
             {
               "listen": "test",
@@ -737,7 +763,7 @@
     },
     {
       "name": "06. Session Management",
-      "description": "Active session inspection and targeted session revocation.",
+      "description": "Active session inspection and targeted session family revocation.",
       "item": [
         {
           "name": "List Active Sessions",
@@ -749,13 +775,15 @@
                   "pm.test('Status code is 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test('Returns list of active sessions', function () {",
+                  "pm.test('Returns list of active sessions with familyId', function () {",
                   "    const sessions = pm.response.json();",
                   "    pm.expect(Array.isArray(sessions)).to.be.true;",
                   "    pm.expect(sessions.length).to.be.greaterThan(0);",
                   "    pm.expect(sessions[0]).to.have.property('id');",
+                  "    pm.expect(sessions[0]).to.have.property('familyId');",
                   "    pm.expect(sessions[0]).to.have.property('expiresAt');",
                   "    pm.collectionVariables.set('sessionId', sessions[0].id);",
+                  "    pm.collectionVariables.set('familyId', sessions[0].familyId);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -792,7 +820,7 @@
                   "pm.test('Status code is 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test('Session revocation confirmed', function () {",
+                  "pm.test('Session family revocation confirmed', function () {",
                   "    const json = pm.response.json();",
                   "    pm.expect(json.revoked).to.be.true;",
                   "});"
