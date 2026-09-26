@@ -55,6 +55,12 @@ export class SessionResponseDto implements SessionDto {
   })
   id!: string;
 
+  @ApiProperty({
+    example: "018f3a2b-7c1e-7f30-8a4b-5c6d7e8f9014",
+    description: "Token family (device session) identifier",
+  })
+  familyId!: string;
+
   @ApiPropertyOptional({
     example: "127.0.0.1",
     description: "Client IP address from connection or proxy headers",

@@ -29,10 +29,15 @@ export class JwtAuthGuard implements CanActivate {
     if (!token) throw new UnauthorizedException("Missing bearer token");
 
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+      const payload = await this.jwtService.verifyAsync<JwtPayload & { type?: unknown }>(token);
+      // Refresh tokens must never authenticate bearer endpoints (OWASP ASVS V3.5.3).
+      if (payload.type === "refresh") {
+        throw new UnauthorizedException("Invalid token type");
+      }
       (request as unknown as AuthenticatedRequest).user = payload;
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException("Invalid or expired token");
     }
   }

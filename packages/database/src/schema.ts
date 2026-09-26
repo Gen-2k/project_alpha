@@ -16,8 +16,9 @@ export const users = pgTable("users", {
 
 // One row per issued refresh token, storing only its SHA-256 hash (bcrypt
 // is salted, so it can't be looked up — and lookup is the whole point).
-// Rotation deletes the old row on every refresh; logout deletes on demand;
-// reuse of a rotated token revokes all of the user's rows (theft response).
+// Rotation sets revokedAt and issues a child token in the same familyId;
+// logout revokes the family; replay of a rotated token revokes the compromised
+// family (RFC 6819 theft isolation).
 export const refreshTokens = pgTable(
   "refresh_tokens",
   {
@@ -27,6 +28,9 @@ export const refreshTokens = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    familyId: uuid("family_id")
+      .notNull()
+      .$defaultFn(() => uuidv7()),
     tokenHash: text("token_hash").notNull().unique(),
     userAgent: text("user_agent"),
     ipAddress: varchar("ip_address", { length: 45 }),
@@ -34,7 +38,10 @@ export const refreshTokens = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
-  (table) => [index("refresh_tokens_user_id_idx").on(table.userId)],
+  (table) => [
+    index("refresh_tokens_user_id_idx").on(table.userId),
+    index("refresh_tokens_family_id_idx").on(table.familyId),
+  ],
 );
 
 export type User = typeof users.$inferSelect;

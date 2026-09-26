@@ -37,6 +37,7 @@ export type RefreshDto = z.infer<typeof refreshSchema>;
 
 export interface SessionDto {
   id: string;
+  familyId: string;
   ipAddress: string | null;
   userAgent: string | null;
   createdAt: Date;

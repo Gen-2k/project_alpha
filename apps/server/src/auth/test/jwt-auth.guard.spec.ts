@@ -90,4 +90,17 @@ describe("JwtAuthGuard", () => {
     );
     await expect(guard.canActivate(context)).rejects.toThrow("Invalid or expired token");
   });
+
+  it("should reject refresh tokens used as bearer tokens", async () => {
+    const refreshToken = await new JwtService({ secret: TEST_SECRET }).signAsync({
+      sub: "user-1",
+      email: "ada@example.com",
+      type: "refresh",
+    });
+    const { guard, context } = mockContext(
+      { headers: { authorization: `Bearer ${refreshToken}` } },
+      false,
+    );
+    await expect(guard.canActivate(context)).rejects.toThrow("Invalid token type");
+  });
 });

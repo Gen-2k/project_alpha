@@ -66,8 +66,9 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
   Swagger at `/docs`.
 - Auth: deny-by-default global `JwtAuthGuard` + `@Public()` escape;
   access (15m) + rotating refresh (7d, SHA-256 hashes in DB, reuse
-  revokes all sessions). Passwords = bcryptjs (pure JS, no native
-  builds); outbounds never include `passwordHash` (explicit projections).
+  revokes the compromised device familyId per RFC 6819). Passwords =
+  bcryptjs (pure JS, no native builds); outbounds never include
+  `passwordHash` (explicit projections).
 - `@Module()` empty classes are legal (`allowWithDecorator` is set —
   don't "fix" them by adding members).
 
@@ -76,10 +77,11 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
 - Database (PostgreSQL 16 via `docker-compose.yml`, Drizzle ORM):
   `pnpm db:up` / `pnpm db:down`. Host port is 5433 (some dev machines
   already run native Postgres on 5432 — never change the mapping without
-  updating `.env.example` + compose together). Schema lives in
-  `packages/database/src/schema.ts`: edit it, then `pnpm --filter database
-db:generate` (commits SQL under `drizzle/`), then `db:migrate` with
-  `DATABASE_URL` exported. `db:push` skips files (dev only).
+  updating `.env.example` + compose together). Primary keys use RFC 9562
+  monotonic `uuidv7()` for sequential B-Tree performance and IDOR protection.
+  Schema lives in `packages/database/src/schema.ts`: edit it, then
+  `pnpm --filter database db:generate` (commits SQL under `drizzle/`),
+  then `db:migrate` with `DATABASE_URL` exported. `db:push` skips files (dev only).
 - New dependency with a postinstall (e.g. telemetry) fails install with
   `ERR_PNPM_IGNORED_BUILDS`: run `pnpm approve-builds` (we answered false
   for `@scarf/scarf` — keep it that way). pnpm auto-appends

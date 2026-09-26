@@ -1,14 +1,14 @@
 import type { Request } from "express";
 
-// JWT access-token payload. Refresh tokens add `type: "refresh"` so an
-// access token can never be mistaken for a refresh token (checked in
-// AuthService.refresh — fail closed on confusion).
+// JWT access-token payload. Refresh tokens add `type: "refresh"` so tokens
+// cannot be confused across boundaries: AuthService.refresh rejects non-refresh
+// tokens, and JwtAuthGuard rejects refresh tokens from Bearer auth (OWASP ASVS V3.5.3).
 export interface JwtPayload {
   sub: string;
   email: string;
 }
 
-export type RefreshPayload = JwtPayload & { type: "refresh" };
+export type RefreshPayload = JwtPayload & { type: "refresh"; familyId?: string; jti?: string };
 
 // The single place request.user is typed. The guard is the only code
 // allowed to populate it (one sanctioned cast, in the guard).

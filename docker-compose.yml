@@ -1,6 +1,6 @@
 # Shared PostgreSQL for local development. Every service connects with:
-# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/project_alpha
-# (see apps/server/.env.example). pgAdmin: host localhost:5432,
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5433/project_alpha
+# (see apps/server/.env.example). pgAdmin: host localhost:5433,
 # user postgres, password postgres. Production uses managed Postgres,
 # never this file.
 name: project-alpha

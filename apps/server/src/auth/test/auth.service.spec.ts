@@ -18,6 +18,7 @@ const safeUser = {
 interface StoredRefreshRow {
   id?: string;
   userId: string;
+  familyId?: string;
   tokenHash: string;
   userAgent?: string | null;
   ipAddress?: string | null;
@@ -57,7 +58,12 @@ function setup() {
           for (const row of selectRows) {
             Object.assign(row, data);
           }
-          return Promise.resolve([]);
+          const rows = selectRows.map((r) => ({ id: r.id ?? "updated-token-id" }));
+          const promise = Promise.resolve(rows) as Promise<typeof rows> & {
+            returning: () => Promise<typeof rows>;
+          };
+          promise.returning = () => Promise.resolve(rows);
+          return promise;
         },
       }),
     })),
@@ -199,14 +205,14 @@ describe("AuthService", () => {
       expect(calls.updated).toBe(1);
       expect(calls.transactions).toBe(1);
 
-      // Immediate double-submit within grace window rejects without revoking all sessions
+      // Immediate double-submit within grace window rejects without revoking the token family
       await expect(service.refresh({ refreshToken: first.refreshToken })).rejects.toThrow(
         "Token already rotated",
       );
-      expect(calls.deleted).toBe(0); // RevokeAll was NOT triggered!
+      expect(calls.deleted).toBe(0); // Family revocation was NOT triggered!
     });
 
-    it("should revoke all sessions if rotated token is replayed after grace period", async () => {
+    it("should revoke token family if rotated token is replayed after grace period", async () => {
       const { service, findById, inserted, selectRows, calls } = setup();
       findById.mockResolvedValue(safeUser);
 
@@ -223,9 +229,9 @@ describe("AuthService", () => {
       });
 
       await expect(service.refresh({ refreshToken: first.refreshToken })).rejects.toThrow(
-        "Invalid refresh token",
+        "Refresh token has been revoked",
       );
-      expect(calls.deleted).toBeGreaterThan(0); // Theft detected, revokeAll was triggered!
+      expect(calls.deleted).toBeGreaterThan(0); // Theft detected, revokeFamily was triggered!
     });
 
     it("should reject expired stored rows", async () => {
@@ -331,6 +337,7 @@ describe("AuthService", () => {
       const { service, selectRows } = setup();
       const mockSession = {
         id: "session-1",
+        familyId: "family-1",
         userId: safeUser.id,
         tokenHash: "hash-1",
         ipAddress: "127.0.0.1",
@@ -343,13 +350,62 @@ describe("AuthService", () => {
       const sessions = await service.listSessions(safeUser.id);
       expect(sessions).toHaveLength(1);
       expect(sessions[0]?.id).toBe("session-1");
+      expect(sessions[0]?.familyId).toBe("family-1");
     });
 
-    it("should revoke a specific session", async () => {
-      const { service, calls } = setup();
+    it("should revoke a specific session family", async () => {
+      const { service, selectRows, calls } = setup();
+      selectRows.push({
+        id: "session-1",
+        familyId: "family-1",
+        userId: safeUser.id,
+        tokenHash: "hash-1",
+        expiresAt: new Date(Date.now() + 10000),
+      });
       await expect(service.revokeSession(safeUser.id, "session-1")).resolves.toEqual({
         revoked: true,
       });
+      expect(calls.deleted).toBe(1);
+    });
+
+    it("should revoke only the replayed token family leaving other device families intact", async () => {
+      const { service, findById, findByEmailWithHash, selectRows, calls } = setup();
+      findById.mockResolvedValue(safeUser);
+      const passwordHash = await bcrypt.hash("correct-horse-1", 4);
+      findByEmailWithHash.mockResolvedValue({
+        ...safeUser,
+        passwordHash,
+      });
+
+      // Device A (Family A)
+      const deviceA = await service.login({
+        email: "ada@example.com",
+        password: "correct-horse-1",
+      });
+      // Device B (Family B)
+      const deviceB = await service.login({
+        email: "ada@example.com",
+        password: "correct-horse-1",
+      });
+
+      expect(deviceA.refreshToken).not.toBe(deviceB.refreshToken);
+
+      // Simulate Device A token rotated 35 seconds ago
+      selectRows.push({
+        id: "token-a-1",
+        familyId: "family-a",
+        userId: safeUser.id,
+        tokenHash: "hash-token-a",
+        expiresAt: new Date(Date.now() + 10000),
+        revokedAt: new Date(Date.now() - 35_000),
+      });
+
+      // Attacker replays Device A's rotated token
+      await expect(service.refresh({ refreshToken: deviceA.refreshToken })).rejects.toThrow(
+        "Refresh token has been revoked",
+      );
+
+      // Only Family A was deleted (1 call to revokeFamily), Device B was not revoked
       expect(calls.deleted).toBe(1);
     });
   });

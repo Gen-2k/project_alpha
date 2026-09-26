@@ -242,15 +242,15 @@ export class AuthController {
   }
 
   private extractRefreshToken(req: Request, body?: unknown): string | undefined {
-    const cookieToken = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE_NAME];
-    if (typeof cookieToken === "string" && cookieToken.length > 0) {
-      return cookieToken;
-    }
     if (body && typeof body === "object" && "refreshToken" in body) {
       const bodyToken = (body as Record<string, unknown>).refreshToken;
       if (typeof bodyToken === "string" && bodyToken.length > 0) {
         return bodyToken;
       }
+    }
+    const cookieToken = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE_NAME];
+    if (typeof cookieToken === "string" && cookieToken.length > 0) {
+      return cookieToken;
     }
     return undefined;
   }
