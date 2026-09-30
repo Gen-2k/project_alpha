@@ -1,0 +1,46 @@
+{
+  "name": "@repo/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "giltflow": "./dist/bin/giltflow.js",
+    "gflow": "./dist/bin/giltflow.js"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./scanner": "./src/core/scanner/index.ts",
+    "./rewriter": "./src/core/rewriter/index.ts",
+    "./catalog": "./src/core/catalog/index.ts",
+    "./linter": "./src/core/linter/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "clean": "rimraf dist coverage"
+  },
+  "dependencies": {
+    "@babel/generator": "catalog:",
+    "@babel/parser": "catalog:",
+    "@babel/traverse": "catalog:",
+    "@babel/types": "catalog:",
+    "@clack/prompts": "catalog:",
+    "@formatjs/icu-messageformat-parser": "catalog:",
+    "commander": "catalog:",
+    "picocolors": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/babel__generator": "catalog:",
+    "@types/babel__traverse": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

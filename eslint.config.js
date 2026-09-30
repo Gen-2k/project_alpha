@@ -24,6 +24,7 @@ const NODE_FILES = [
   "apps/api/**/*.ts",
   "apps/worker/**/*.ts",
   "packages/database/**/*.ts",
+  "packages/cli/**/*.ts",
 ];
 
 export default [

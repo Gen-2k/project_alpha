@@ -33,6 +33,7 @@ export default {
         "utils",
         "types",
         "validation",
+        "cli",
         "config",
         "repo",
         "ci",

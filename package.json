@@ -24,6 +24,7 @@
     "db:down": "docker compose down",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "giltflow": "node packages/cli/dist/bin/giltflow.js",
     "prepare": "husky"
   },
   "devDependencies": {
