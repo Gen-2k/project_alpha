@@ -34,6 +34,24 @@ describe("MailService", () => {
     await expect(
       mailService.sendAccountDeletedNotification("ada@example.com"),
     ).resolves.toBeUndefined();
+
+    await expect(
+      mailService.sendOrganizationInvitationEmail("bob@example.com", {
+        organizationName: "Acme Corp",
+        inviterName: "Ada Lovelace",
+        inviterEmail: "ada@example.com",
+        role: "developer",
+        rawToken: "inv-token-123",
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      mailService.sendMemberAddedNotification("bob@example.com", {
+        organizationName: "Acme Corp",
+        adderName: "Ada Lovelace",
+        role: "developer",
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("should initialize SMTP transporter and send emails via nodemailer when configured", async () => {
@@ -96,6 +114,34 @@ describe("MailService", () => {
         from: "Project Alpha <no-reply@projectalpha.local>",
         to: "ada@example.com",
         subject: "Your Project Alpha account has been deleted",
+      }),
+    );
+
+    await mailService.sendOrganizationInvitationEmail("bob@example.com", {
+      organizationName: "Acme Corp",
+      inviterName: "Ada Lovelace",
+      inviterEmail: "ada@example.com",
+      role: "developer",
+      rawToken: "inv-token-123",
+    });
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "Project Alpha <no-reply@projectalpha.local>",
+        to: "bob@example.com",
+        subject: "You've been invited to join Acme Corp on Project Alpha",
+      }),
+    );
+
+    await mailService.sendMemberAddedNotification("bob@example.com", {
+      organizationName: "Acme Corp",
+      adderName: "Ada Lovelace",
+      role: "developer",
+    });
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "Project Alpha <no-reply@projectalpha.local>",
+        to: "bob@example.com",
+        subject: "You've been added to Acme Corp on Project Alpha",
       }),
     );
   });

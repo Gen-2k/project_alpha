@@ -10,7 +10,9 @@ describe("UsersController", () => {
   let usersService: {
     findById: ReturnType<typeof vi.fn>;
     findByIdWithHash: ReturnType<typeof vi.fn>;
+    updateProfile: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    findSoleOwnedOrganizationNames: ReturnType<typeof vi.fn>;
   };
   let mailService: {
     sendAccountDeletedNotification: ReturnType<typeof vi.fn>;
@@ -19,6 +21,11 @@ describe("UsersController", () => {
   const safeUser: SafeUser = {
     id: "user-1",
     email: "ada@example.com",
+    name: "Ada Lovelace",
+    locale: "en-US",
+    timezone: "UTC",
+    countryCode: "US",
+    avatarUrl: null,
     emailVerifiedAt: new Date(),
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -28,7 +35,9 @@ describe("UsersController", () => {
     usersService = {
       findById: vi.fn(() => Promise.resolve(safeUser)),
       findByIdWithHash: vi.fn(),
+      updateProfile: vi.fn(() => Promise.resolve(safeUser)),
       delete: vi.fn(() => Promise.resolve()),
+      findSoleOwnedOrganizationNames: vi.fn(() => Promise.resolve([])),
     };
     mailService = {
       sendAccountDeletedNotification: vi.fn(() => Promise.resolve()),
@@ -51,6 +60,21 @@ describe("UsersController", () => {
     await expect(controller.me(req)).rejects.toThrow("User profile not found");
   });
 
+  describe("updateMe", () => {
+    it("should update profile and return the updated safe user", async () => {
+      const updatedUser = { ...safeUser, name: "Ada King", timezone: "Europe/London" };
+      usersService.updateProfile.mockResolvedValueOnce(updatedUser);
+      const req = { user: { sub: "user-1", email: "ada@example.com" } } as never;
+      await expect(
+        controller.updateMe({ name: "Ada King", timezone: "Europe/London" }, req),
+      ).resolves.toEqual(updatedUser);
+      expect(usersService.updateProfile).toHaveBeenCalledWith("user-1", {
+        name: "Ada King",
+        timezone: "Europe/London",
+      });
+    });
+  });
+
   describe("deleteMe", () => {
     it("should delete user, send notification, and clear cookie when password is correct", async () => {
       const passwordHash = await bcrypt.hash("correct-horse", 10);
@@ -68,7 +92,30 @@ describe("UsersController", () => {
         deleted: true,
         message: "Your account and all associated data have been permanently deleted.",
       });
+      expect(usersService.delete).toHaveBeenCalledWith("user-1");
       expect(mailService.sendAccountDeletedNotification).toHaveBeenCalledWith("ada@example.com");
+      expect(clearCookie).toHaveBeenCalled();
+    });
+
+    it("should succeed and delete user even if notification email dispatch fails", async () => {
+      const passwordHash = await bcrypt.hash("correct-horse", 10);
+      usersService.findByIdWithHash.mockResolvedValueOnce({
+        ...safeUser,
+        passwordHash,
+      });
+      mailService.sendAccountDeletedNotification.mockRejectedValueOnce(
+        new Error("SMTP server offline"),
+      );
+
+      const clearCookie = vi.fn();
+      const req = { user: { sub: "user-1", email: "ada@example.com" } } as never;
+      const res = { clearCookie } as never;
+
+      const result = await controller.deleteMe({ password: "correct-horse" }, req, res);
+      expect(result).toEqual({
+        deleted: true,
+        message: "Your account and all associated data have been permanently deleted.",
+      });
       expect(usersService.delete).toHaveBeenCalledWith("user-1");
       expect(clearCookie).toHaveBeenCalled();
     });
@@ -88,6 +135,25 @@ describe("UsersController", () => {
         "The password provided is incorrect",
       );
       expect(usersService.delete).not.toHaveBeenCalled();
+    });
+
+    it("should throw BadRequestException if user is the sole owner of any organization", async () => {
+      const passwordHash = await bcrypt.hash("correct-horse", 10);
+      usersService.findByIdWithHash.mockResolvedValueOnce({
+        ...safeUser,
+        passwordHash,
+      });
+      usersService.findSoleOwnedOrganizationNames.mockResolvedValueOnce(["Acme Corp"]);
+
+      const clearCookie = vi.fn();
+      const req = { user: { sub: "user-1", email: "ada@example.com" } } as never;
+      const res = { clearCookie } as never;
+
+      await expect(controller.deleteMe({ password: "correct-horse" }, req, res)).rejects.toThrow(
+        'Cannot delete account while you are the sole owner of organization(s): "Acme Corp". Please transfer ownership or delete the organization first.',
+      );
+      expect(usersService.delete).not.toHaveBeenCalled();
+      expect(clearCookie).not.toHaveBeenCalled();
     });
 
     it("should throw NotFoundException if user to delete is missing", async () => {

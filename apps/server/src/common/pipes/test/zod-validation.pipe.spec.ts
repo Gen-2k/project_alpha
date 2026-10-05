@@ -27,4 +27,10 @@ describe("ZodValidationPipe", () => {
       expect(response.issues[0]?.path).toBe("name");
     }
   });
+
+  it("should pass param values through untouched without validation", () => {
+    expect(pipe.transform("some-uuid-id", { type: "param", metatype: String, data: "id" })).toBe(
+      "some-uuid-id",
+    );
+  });
 });

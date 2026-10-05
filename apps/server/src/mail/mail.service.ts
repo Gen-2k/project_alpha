@@ -4,6 +4,8 @@ import type { Transporter } from "nodemailer";
 import nodemailer from "nodemailer";
 
 import { renderAccountDeletedNotification } from "./templates/account-deleted.template.js";
+import { renderMemberAddedNotification } from "./templates/member-added.template.js";
+import { renderOrganizationInvitationEmail } from "./templates/organization-invitation.template.js";
 import { renderPasswordChangedNotification } from "./templates/password-changed.template.js";
 import { renderPasswordResetEmail } from "./templates/password-reset.template.js";
 import { renderEmailVerificationEmail } from "./templates/verify-email.template.js";
@@ -125,6 +127,63 @@ export class MailService {
       text,
       html,
       devLogSummary: `[DEV EMAIL DISPATCH] Email verification link for ${email}:\n>>> Verification URL: ${verificationUrl}\n>>> Expires in: 24 hours`,
+    });
+  }
+
+  async sendOrganizationInvitationEmail(
+    email: string,
+    details: {
+      organizationName: string;
+      inviterName?: string | null;
+      inviterEmail: string;
+      role: string;
+      rawToken: string;
+      expiresInDays?: number;
+    },
+  ): Promise<void> {
+    const inviteUrl = `${this.frontendUrl}/accept-invitation?token=${details.rawToken}`;
+    const { subject, text, html } = renderOrganizationInvitationEmail({
+      email,
+      organizationName: details.organizationName,
+      inviterName: details.inviterName,
+      inviterEmail: details.inviterEmail,
+      role: details.role,
+      inviteUrl,
+      expiresInDays: details.expiresInDays ?? 7,
+    });
+
+    await this.dispatch({
+      to: email,
+      subject,
+      text,
+      html,
+      devLogSummary: `[DEV EMAIL DISPATCH] Organization invitation for ${email} to join ${details.organizationName}:\n>>> Invite URL: ${inviteUrl}\n>>> Expires in: ${String(details.expiresInDays ?? 7)} days`,
+    });
+  }
+
+  async sendMemberAddedNotification(
+    email: string,
+    details: {
+      organizationName: string;
+      adderName?: string | null;
+      role: string;
+    },
+  ): Promise<void> {
+    const dashboardUrl = `${this.frontendUrl}/dashboard`;
+    const { subject, text, html } = renderMemberAddedNotification({
+      email,
+      organizationName: details.organizationName,
+      adderName: details.adderName,
+      role: details.role,
+      dashboardUrl,
+    });
+
+    await this.dispatch({
+      to: email,
+      subject,
+      text,
+      html,
+      devLogSummary: `[DEV EMAIL DISPATCH] Member added notification for ${email} in ${details.organizationName}`,
     });
   }
 }

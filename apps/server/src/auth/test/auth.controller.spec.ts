@@ -97,10 +97,25 @@ describe("AuthController", () => {
     expect(res).toMatchObject({ accessToken: "a2", refreshToken: "r2" });
   });
 
-  it("should throw UnauthorizedException if refresh token cookie is missing", async () => {
+  it("should throw UnauthorizedException if refresh token is missing in cookie and body", async () => {
     await expect(
       controller.refresh(mockReq as unknown as Request, mockRes as unknown as Response),
-    ).rejects.toThrow("A refresh token cookie must be provided");
+    ).rejects.toThrow("A refresh token must be provided via cookie or request body");
+  });
+
+  it("should delegate refresh via request body when cookie is missing and set new cookie", async () => {
+    const bodyReq = {
+      ...mockReq,
+      cookies: {},
+      body: { refreshToken: "body-token" },
+    } as unknown as Request;
+    const res = await controller.refresh(bodyReq, mockRes as unknown as Response);
+    expect(authService.refresh).toHaveBeenCalledWith(
+      { refreshToken: "body-token" },
+      { ipAddress: "127.0.0.1", userAgent: "test-agent" },
+    );
+    expect(mockRes.cookie).toHaveBeenCalledWith("refreshToken", "r2", expect.any(Object));
+    expect(res).toMatchObject({ accessToken: "a2", refreshToken: "r2" });
   });
 
   it("should delegate logout with cookie token and clear cookie", async () => {
@@ -113,7 +128,18 @@ describe("AuthController", () => {
     expect(authService.logout).toHaveBeenCalledWith({ refreshToken: "cookie-token" });
   });
 
-  it("should succeed logout without cookie token and clear cookie", async () => {
+  it("should delegate logout with body token when cookie is absent and clear cookie", async () => {
+    const bodyReq = {
+      ...mockReq,
+      cookies: {},
+      body: { refreshToken: "body-token" },
+    } as unknown as Request;
+    await controller.logout(bodyReq, mockRes as unknown as Response);
+    expect(mockRes.clearCookie).toHaveBeenCalledWith("refreshToken", expect.any(Object));
+    expect(authService.logout).toHaveBeenCalledWith({ refreshToken: "body-token" });
+  });
+
+  it("should succeed logout without cookie or body token and clear cookie", async () => {
     const result = await controller.logout(
       mockReq as unknown as Request,
       mockRes as unknown as Response,

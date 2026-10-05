@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
+import type { NewUser } from "@repo/database/schema";
 import type { SafeUser } from "@repo/validation/auth";
 import bcrypt from "bcryptjs";
 import { describe, expect, it, vi } from "vitest";
@@ -28,6 +29,11 @@ const TEST_SECRET = "test-secret-that-is-long-enough-for-hs256!!";
 const safeUser: SafeUser = {
   id: "11111111-1111-4111-8111-111111111111",
   email: "ada@example.com",
+  name: "Ada Lovelace",
+  locale: "en-US",
+  timezone: "UTC",
+  countryCode: "US",
+  avatarUrl: null,
   emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -116,7 +122,7 @@ function setup(options?: { emailNormalizationEnabled?: boolean }) {
   const markEmailVerified = vi.fn((): Promise<void> => Promise.resolve());
   // Like a real DB `returning(safeColumns)` clause: echoes back only the
   // safe fields, never what was handed in (in particular, no passwordHash).
-  const create = vi.fn((input: { email: string; passwordHash: string }): Promise<typeof safeUser> =>
+  const create = vi.fn((input: NewUser): Promise<typeof safeUser> =>
     Promise.resolve({ ...safeUser, email: input.email }),
   );
   const users = {
@@ -187,6 +193,8 @@ describe("AuthService", () => {
       const createdWith = create.mock.calls[0]?.[0];
       expect(createdWith?.email).toBe("ada@example.com");
       expect(createdWith?.passwordHash).not.toBe("correct-horse-1");
+      expect(createdWith?.locale).toBe("en-US");
+      expect(createdWith?.timezone).toBe("UTC");
       expect(await bcrypt.compare("correct-horse-1", createdWith?.passwordHash ?? "")).toBe(true);
       expect(result).toEqual({
         message: "Registration successful. Please check your email to verify your account.",
@@ -200,6 +208,24 @@ describe("AuthService", () => {
         "ada@example.com",
         expect.any(String),
       );
+    });
+
+    it("should pass custom regional preferences to usersService.create when provided", async () => {
+      const { service, create } = setup();
+      await service.register({
+        email: "ada@example.com",
+        password: "correct-horse-1",
+        name: "Ada Lovelace",
+        locale: "de-DE",
+        timezone: "Europe/Berlin",
+        countryCode: "DE",
+      });
+
+      const createdWith = create.mock.calls[0]?.[0];
+      expect(createdWith?.name).toBe("Ada Lovelace");
+      expect(createdWith?.locale).toBe("de-DE");
+      expect(createdWith?.timezone).toBe("Europe/Berlin");
+      expect(createdWith?.countryCode).toBe("DE");
     });
 
     it("should reject duplicate emails", async () => {
@@ -706,7 +732,7 @@ describe("AuthService", () => {
 
   describe("updatePassword", () => {
     it("should verify current password, update password, and notify user", async () => {
-      const { service, findByIdWithHash, updatePassword, mail } = setup();
+      const { service, findByIdWithHash, updatePassword, mail, calls } = setup();
       const currentPassword = "old-password-123";
       const currentPasswordHash = await bcrypt.hash(currentPassword, 10);
       findByIdWithHash.mockResolvedValueOnce({
@@ -722,8 +748,13 @@ describe("AuthService", () => {
       expect(result.message).toBe(
         "Your password has been successfully updated. All other active sessions have been signed out.",
       );
-      expect(updatePassword).toHaveBeenCalledWith(safeUser.id, expect.any(String));
+      expect(updatePassword).toHaveBeenCalledWith(
+        safeUser.id,
+        expect.any(String),
+        expect.anything(),
+      );
       expect(mail.sendPasswordChangedNotification).toHaveBeenCalledWith(safeUser.email);
+      expect(calls.transactions).toBe(1);
     });
 
     it("should throw UnauthorizedException when current password is wrong", async () => {
@@ -780,6 +811,24 @@ describe("AuthService", () => {
 
       expect(result.message).toContain("Your password has been successfully updated");
       expect(calls.deleted).toBe(1);
+    });
+
+    it("should succeed even if mailService.sendPasswordChangedNotification throws", async () => {
+      const { service, findByIdWithHash, mail } = setup();
+      const currentPassword = "old-password-123";
+      const currentPasswordHash = await bcrypt.hash(currentPassword, 10);
+      findByIdWithHash.mockResolvedValueOnce({
+        ...safeUser,
+        passwordHash: currentPasswordHash,
+      });
+      mail.sendPasswordChangedNotification.mockRejectedValueOnce(new Error("SMTP offline"));
+
+      const result = await service.updatePassword(safeUser.id, {
+        currentPassword,
+        newPassword: "brand-new-password-456",
+      });
+
+      expect(result.message).toContain("Your password has been successfully updated");
     });
   });
 

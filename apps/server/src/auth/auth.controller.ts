@@ -47,6 +47,7 @@ import {
 } from "./dto/auth-response.dto.js";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
+import { RefreshDto } from "./dto/refresh.dto.js";
 import { RegisterDto } from "./dto/register.dto.js";
 import { ResendVerificationDto } from "./dto/resend-verification.dto.js";
 import { ResetPasswordDto } from "./dto/reset-password.dto.js";
@@ -131,8 +132,9 @@ export class AuthController {
   @ApiOperation({
     summary: "Rotate a refresh token into a fresh pair",
     description:
-      "Rotates the refresh token supplied via HttpOnly cookie into a new token pair and sets a fresh cookie.",
+      "Rotates the refresh token supplied via HttpOnly cookie or JSON request body into a new token pair and sets a fresh cookie.",
   })
+  @ApiBody({ type: RefreshDto, required: false })
   @ApiResponse({
     status: 200,
     type: AuthTokensResponseDto,
@@ -141,7 +143,7 @@ export class AuthController {
   @ApiResponse({
     status: 401,
     type: ApiErrorResponseDto,
-    description: "Missing, expired, or invalid refresh token cookie.",
+    description: "Missing, expired, or invalid refresh token.",
   })
   @ApiResponse({
     status: 429,
@@ -151,7 +153,9 @@ export class AuthController {
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = this.extractRefreshToken(req);
     if (!token) {
-      throw new UnauthorizedException("A refresh token cookie must be provided");
+      throw new UnauthorizedException(
+        "A refresh token must be provided via cookie or request body",
+      );
     }
 
     const result = await this.authService.refresh(
@@ -168,8 +172,9 @@ export class AuthController {
   @ApiOperation({
     summary: "Invalidate the current session",
     description:
-      "Clears the HttpOnly refresh cookie and deletes the token from database if present (always succeeds).",
+      "Clears the HttpOnly refresh cookie and deletes the token from database if present via cookie or request body (always succeeds).",
   })
+  @ApiBody({ type: RefreshDto, required: false })
   @ApiResponse({ status: 200, type: LogoutResponseDto, description: "Logged out successfully." })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = this.extractRefreshToken(req);
@@ -384,6 +389,10 @@ export class AuthController {
     const cookieToken = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE_NAME];
     if (typeof cookieToken === "string" && cookieToken.length > 0) {
       return cookieToken;
+    }
+    const bodyToken = (req.body as Record<string, unknown> | undefined)?.refreshToken;
+    if (typeof bodyToken === "string" && bodyToken.length > 0) {
+      return bodyToken;
     }
     return undefined;
   }

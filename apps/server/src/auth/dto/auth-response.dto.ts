@@ -16,6 +16,39 @@ export class UserResponseDto implements SafeUser {
   email!: string;
 
   @ApiPropertyOptional({
+    example: "Ada Lovelace",
+    description: "User display name",
+    nullable: true,
+  })
+  name!: string | null;
+
+  @ApiProperty({
+    example: "en-US",
+    description: "User preferred BCP 47 locale tag",
+  })
+  locale!: string;
+
+  @ApiProperty({
+    example: "UTC",
+    description: "User preferred IANA timezone identifier",
+  })
+  timezone!: string;
+
+  @ApiPropertyOptional({
+    example: "US",
+    description: "2-letter ISO 3166-1 alpha-2 country code",
+    nullable: true,
+  })
+  countryCode!: string | null;
+
+  @ApiPropertyOptional({
+    example: "https://example.com/avatar.png",
+    description: "User avatar image URL",
+    nullable: true,
+  })
+  avatarUrl!: string | null;
+
+  @ApiPropertyOptional({
     example: "2026-09-25T12:05:00.000Z",
     description: "Timestamp when email was verified (null if unverified)",
     nullable: true,

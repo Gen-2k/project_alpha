@@ -1,11 +1,14 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   NotFoundException,
+  Patch,
   Req,
   Res,
   UnauthorizedException,
@@ -14,7 +17,7 @@ import {
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
 import type { SafeUser } from "@repo/validation/auth";
-import { deleteAccountSchema } from "@repo/validation/auth";
+import { deleteAccountSchema, updateProfileSchema } from "@repo/validation/auth";
 import bcrypt from "bcryptjs";
 import type { Response } from "express";
 
@@ -25,11 +28,14 @@ import { ApiErrorResponseDto } from "../common/dto/error-response.dto.js";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe.js";
 import { MailService } from "../mail/mail.service.js";
 import { DeleteAccountDto, DeleteAccountResponseDto } from "./dto/delete-account.dto.js";
+import { UpdateProfileDto } from "./dto/update-profile.dto.js";
 import { UsersService } from "./users.service.js";
 
 @ApiTags("users")
 @Controller("users")
 export class UsersController {
+  private readonly logger = new Logger(UsersController.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
@@ -53,6 +59,28 @@ export class UsersController {
     return user;
   }
 
+  @Patch("me")
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth("JWT-auth")
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: "Update profile of the current authenticated user",
+    description:
+      "Updates user profile preferences (name, locale, timezone, countryCode, avatarUrl).",
+  })
+  @ApiBody({ type: UpdateProfileDto })
+  @ApiResponse({ status: 200, type: UserResponseDto, description: "Profile updated successfully." })
+  @ApiResponse({ status: 400, type: ApiErrorResponseDto, description: "Invalid profile data." })
+  @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
+  @ApiResponse({ status: 404, type: ApiErrorResponseDto, description: "User not found." })
+  @UsePipes(new ZodValidationPipe(updateProfileSchema))
+  async updateMe(
+    @Body() dto: UpdateProfileDto,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<SafeUser> {
+    return this.usersService.updateProfile(req.user.sub, dto);
+  }
+
   @Delete("me")
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth("JWT-auth")
@@ -67,6 +95,11 @@ export class UsersController {
     status: 200,
     type: DeleteAccountResponseDto,
     description: "Account deleted successfully.",
+  })
+  @ApiResponse({
+    status: 400,
+    type: ApiErrorResponseDto,
+    description: "Cannot delete account while sole owner of an organization.",
   })
   @ApiResponse({
     status: 401,
@@ -90,10 +123,22 @@ export class UsersController {
       throw new UnauthorizedException("The password provided is incorrect");
     }
 
-    await this.mailService.sendAccountDeletedNotification(user.email);
-    await this.usersService.delete(user.id);
+    const soleOwnedOrgNames = await this.usersService.findSoleOwnedOrganizationNames(user.id);
+    if (soleOwnedOrgNames.length > 0) {
+      const namesList = soleOwnedOrgNames.map((n) => `"${n}"`).join(", ");
+      throw new BadRequestException(
+        `Cannot delete account while you are the sole owner of organization(s): ${namesList}. Please transfer ownership or delete the organization first.`,
+      );
+    }
 
+    await this.usersService.delete(user.id);
     clearRefreshTokenCookie(res);
+
+    try {
+      await this.mailService.sendAccountDeletedNotification(user.email);
+    } catch (err) {
+      this.logger.warn(`Failed to dispatch account deleted notification: ${String(err)}`);
+    }
 
     return {
       deleted: true,

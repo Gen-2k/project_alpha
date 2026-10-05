@@ -6,6 +6,11 @@ import { UsersService } from "../users.service.js";
 const safeRow = {
   id: "11111111-1111-4111-8111-111111111111",
   email: "ada@example.com",
+  name: "Ada Lovelace",
+  locale: "en-US",
+  timezone: "UTC",
+  countryCode: "US",
+  avatarUrl: null,
   emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -16,17 +21,32 @@ const safeRow = {
 // queries against Postgres are proven by live boot, not mocks.
 function fakeDb(options?: {
   selectRows?: unknown[];
+  selectQueue?: unknown[][];
   insertRows?: unknown[];
   insertError?: Error;
+  updateRows?: unknown[];
   updateSpy?: () => void;
   deleteSpy?: () => void;
 }): Db {
-  const selectRows = options?.selectRows ?? [safeRow];
+  const selectQueue = options?.selectQueue ? [...options.selectQueue] : undefined;
+  const nextSelectRows = () => {
+    if (selectQueue && selectQueue.length > 0) {
+      return selectQueue.shift() ?? [];
+    }
+    return options?.selectRows ?? [safeRow];
+  };
+
   return {
     select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(selectRows),
-      }),
+      from: () => {
+        const rows = nextSelectRows();
+        return {
+          where: () => Promise.resolve(rows),
+          innerJoin: () => ({
+            where: () => Promise.resolve(rows),
+          }),
+        };
+      },
     }),
     insert: () => ({
       values: () => ({
@@ -42,7 +62,10 @@ function fakeDb(options?: {
       set: () => ({
         where: () => {
           options?.updateSpy?.();
-          return Promise.resolve();
+          const returningPromise = Promise.resolve(options?.updateRows ?? [safeRow]);
+          return Object.assign(returningPromise, {
+            returning: () => returningPromise,
+          });
         },
       }),
     }),
@@ -174,6 +197,104 @@ describe("UsersService", () => {
       await expect(
         service.create({ email: "ada@example.com", passwordHash: "hashed" }),
       ).rejects.toThrow("db down");
+    });
+
+    it("should insert using custom executor when provided", async () => {
+      let customCalled = false;
+      const customExecutor = {
+        insert: () => ({
+          values: () => ({
+            returning: () => {
+              customCalled = true;
+              return Promise.resolve([safeRow]);
+            },
+          }),
+        }),
+      } as unknown as Pick<Db, "insert">;
+
+      const created = await new UsersService(fakeDb()).create(
+        { email: "ada@example.com", passwordHash: "hashed" },
+        customExecutor,
+      );
+      expect(created).toEqual(safeRow);
+      expect(customCalled).toBe(true);
+    });
+  });
+
+  describe("updateProfile", () => {
+    it("should update profile preferences and return the updated safe user", async () => {
+      const updatedUser = {
+        ...safeRow,
+        name: "Ada King",
+        timezone: "Europe/London",
+      };
+      const service = new UsersService(fakeDb({ updateRows: [updatedUser] }));
+      const result = await service.updateProfile(safeRow.id, {
+        name: "Ada King",
+        timezone: "Europe/London",
+      });
+      expect(result).toEqual(updatedUser);
+    });
+
+    it("should throw NotFoundException if user to update does not exist", async () => {
+      const service = new UsersService(fakeDb({ updateRows: [] }));
+      await expect(service.updateProfile("non-existent-id", { name: "Ghost" })).rejects.toThrow(
+        "User profile not found",
+      );
+    });
+
+    it("should use custom executor when provided", async () => {
+      let customCalled = false;
+      const customExecutor = {
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: () => {
+                customCalled = true;
+                return Promise.resolve([safeRow]);
+              },
+            }),
+          }),
+        }),
+      } as unknown as Pick<Db, "update">;
+
+      const service = new UsersService(fakeDb());
+      await service.updateProfile(safeRow.id, { name: "Ada" }, customExecutor);
+      expect(customCalled).toBe(true);
+    });
+  });
+
+  describe("findSoleOwnedOrganizationNames", () => {
+    it("should return empty array if user owns no organizations", async () => {
+      const service = new UsersService(fakeDb({ selectRows: [] }));
+      const result = await service.findSoleOwnedOrganizationNames(safeRow.id);
+      expect(result).toEqual([]);
+    });
+
+    it("should return empty array if all owned organizations have other owners", async () => {
+      const service = new UsersService(
+        fakeDb({
+          selectQueue: [[{ id: "org-1", name: "Acme Corp" }], [{ organizationId: "org-1" }]],
+        }),
+      );
+      const result = await service.findSoleOwnedOrganizationNames(safeRow.id);
+      expect(result).toEqual([]);
+    });
+
+    it("should return names of organizations where user is the only owner", async () => {
+      const service = new UsersService(
+        fakeDb({
+          selectQueue: [
+            [
+              { id: "org-1", name: "Acme Corp" },
+              { id: "org-2", name: "Beta Labs" },
+            ],
+            [{ organizationId: "org-2" }],
+          ],
+        }),
+      );
+      const result = await service.findSoleOwnedOrganizationNames(safeRow.id);
+      expect(result).toEqual(["Acme Corp"]);
     });
   });
 });

@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./auth": "./src/auth.ts"
+    "./auth": "./src/auth.ts",
+    "./organizations": "./src/organizations.ts",
+    "./products": "./src/products.ts",
+    "./projects": "./src/projects.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

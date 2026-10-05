@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { renderAccountDeletedNotification } from "../templates/account-deleted.template.js";
 import { escapeHtml, renderEmailLayout } from "../templates/email.layout.js";
+import { renderMemberAddedNotification } from "../templates/member-added.template.js";
+import { renderOrganizationInvitationEmail } from "../templates/organization-invitation.template.js";
 import { renderPasswordChangedNotification } from "../templates/password-changed.template.js";
 import { renderPasswordResetEmail } from "../templates/password-reset.template.js";
 import { renderEmailVerificationEmail } from "../templates/verify-email.template.js";
@@ -154,6 +156,75 @@ describe("Email Templates", () => {
       expect(result.html).toContain("Account Deleted");
       expect(result.html).toContain("ada@example.com");
       expect(result.html).toContain("permanently deleted");
+    });
+  });
+
+  describe("renderOrganizationInvitationEmail", () => {
+    it("should render invitation email with default 7-day expiration", () => {
+      const result = renderOrganizationInvitationEmail({
+        email: "bob@example.com",
+        organizationName: "Acme Corp",
+        inviterName: "Ada Lovelace",
+        inviterEmail: "ada@example.com",
+        role: "developer",
+        inviteUrl: "https://example.com/accept-invitation?token=xyz",
+      });
+
+      expect(result.subject).toBe("You've been invited to join Acme Corp on Project Alpha");
+      expect(result.text).toContain("Ada Lovelace (ada@example.com)");
+      expect(result.text).toContain("developer");
+      expect(result.text).toContain("7 days");
+      expect(result.html).toContain("Join Your Team on Project Alpha");
+      expect(result.html).toContain("Ada Lovelace (ada@example.com)");
+      expect(result.html).toContain("Acme Corp");
+      expect(result.html).toContain("Accept Invitation");
+    });
+
+    it("should handle null inviterName and custom expiration", () => {
+      const result = renderOrganizationInvitationEmail({
+        email: "bob@example.com",
+        organizationName: "Acme Corp",
+        inviterEmail: "ada@example.com",
+        role: "admin",
+        inviteUrl: "https://example.com/accept-invitation?token=xyz",
+        expiresInDays: 14,
+      });
+
+      expect(result.text).toContain("ada@example.com");
+      expect(result.text).toContain("14 days");
+      expect(result.html).toContain("14 days");
+    });
+  });
+
+  describe("renderMemberAddedNotification", () => {
+    it("should render member added notification", () => {
+      const result = renderMemberAddedNotification({
+        email: "bob@example.com",
+        organizationName: "Acme Corp",
+        adderName: "Ada Lovelace",
+        role: "translator",
+        dashboardUrl: "https://example.com/dashboard",
+      });
+
+      expect(result.subject).toBe("You've been added to Acme Corp on Project Alpha");
+      expect(result.text).toContain("Ada Lovelace");
+      expect(result.text).toContain("translator");
+      expect(result.html).toContain("You&#039;ve Been Added to a Team");
+      expect(result.html).toContain("Ada Lovelace");
+      expect(result.html).toContain("translator");
+      expect(result.html).toContain("Go to Organization");
+    });
+
+    it("should fallback to generic administrator when adderName is omitted", () => {
+      const result = renderMemberAddedNotification({
+        email: "bob@example.com",
+        organizationName: "Acme Corp",
+        role: "developer",
+        dashboardUrl: "https://example.com/dashboard",
+      });
+
+      expect(result.text).toContain("An administrator");
+      expect(result.html).toContain("An administrator");
     });
   });
 });

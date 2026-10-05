@@ -5,6 +5,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -70,6 +71,8 @@ function hashToken(token: string): string {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   // Milliseconds, converted once: jsonwebtoken accepts ms numbers, and a
   // number leaves no ambiguity about units at signing time. The single
   // cast is sound because env validation already constrains shape to
@@ -111,7 +114,14 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_COST);
-    const user = await this.usersService.create({ email, passwordHash });
+    const user = await this.usersService.create({
+      email,
+      passwordHash,
+      name: dto.name,
+      locale: dto.locale ?? "en-US",
+      timezone: dto.timezone ?? "UTC",
+      countryCode: dto.countryCode,
+    });
 
     const rawToken = randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
@@ -151,9 +161,35 @@ export class AuthService {
 
     // Strip the hash explicitly (field by field, no rest-destructure):
     // what leaves this method is provably hash-free by construction.
-    const { id, email, emailVerifiedAt, createdAt, updatedAt } = user;
+    const {
+      id,
+      email,
+      name,
+      locale,
+      timezone,
+      countryCode,
+      avatarUrl,
+      emailVerifiedAt,
+      createdAt,
+      updatedAt,
+    } = user;
     const familyId = uuidv7();
-    return this.issueTokens({ id, email, emailVerifiedAt, createdAt, updatedAt }, familyId, meta);
+    return this.issueTokens(
+      {
+        id,
+        email,
+        name,
+        locale,
+        timezone,
+        countryCode,
+        avatarUrl,
+        emailVerifiedAt,
+        createdAt,
+        updatedAt,
+      },
+      familyId,
+      meta,
+    );
   }
 
   async refresh(dto: RefreshDto, meta?: RequestMetadata): Promise<AuthTokens> {
@@ -289,7 +325,7 @@ export class AuthService {
     meta?: RequestMetadata,
     executor: Pick<Db, "insert"> = this.db,
   ): Promise<AuthTokens> {
-    const payload: JwtPayload = { sub: user.id, email: user.email };
+    const payload: JwtPayload = { sub: user.id, email: user.email, locale: user.locale };
     const accessToken = await this.jwtService.signAsync(payload, {
       expiresIn: this.accessExpiresInMs,
     });
@@ -441,30 +477,39 @@ export class AuthService {
     }
 
     const newPasswordHash = await bcrypt.hash(dto.newPassword, BCRYPT_COST);
-    await this.usersService.updatePassword(userId, newPasswordHash);
 
-    // Identify current familyId if current refresh token was supplied via cookie or body
-    let currentFamilyId: string | undefined;
-    if (currentRefreshToken) {
-      const tokenHash = hashToken(currentRefreshToken);
-      const [stored] = await this.db
-        .select({ familyId: refreshTokens.familyId })
-        .from(refreshTokens)
-        .where(eq(refreshTokens.tokenHash, tokenHash));
-      currentFamilyId = stored?.familyId;
+    await this.db.transaction(async (tx) => {
+      await this.usersService.updatePassword(userId, newPasswordHash, tx);
+
+      // Identify current familyId if current refresh token was supplied via cookie or body
+      let currentFamilyId: string | undefined;
+      if (currentRefreshToken) {
+        const tokenHash = hashToken(currentRefreshToken);
+        const [stored] = await tx
+          .select({ familyId: refreshTokens.familyId })
+          .from(refreshTokens)
+          .where(eq(refreshTokens.tokenHash, tokenHash));
+        currentFamilyId = stored?.familyId;
+      }
+
+      // Revoke all other device sessions for this user, keeping the current device session active.
+      // If no current session token was provided, revoke all sessions as a fail-safe measure.
+      if (currentFamilyId) {
+        await tx
+          .delete(refreshTokens)
+          .where(
+            and(eq(refreshTokens.userId, userId), ne(refreshTokens.familyId, currentFamilyId)),
+          );
+      } else {
+        await tx.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
+      }
+    });
+
+    try {
+      await this.mailService.sendPasswordChangedNotification(user.email);
+    } catch (err) {
+      this.logger.warn(`Failed to dispatch password changed notification: ${String(err)}`);
     }
-
-    // Revoke all other device sessions for this user, keeping the current device session active.
-    // If no current session token was provided, revoke all sessions as a fail-safe measure.
-    if (currentFamilyId) {
-      await this.db
-        .delete(refreshTokens)
-        .where(and(eq(refreshTokens.userId, userId), ne(refreshTokens.familyId, currentFamilyId)));
-    } else {
-      await this.db.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
-    }
-
-    await this.mailService.sendPasswordChangedNotification(user.email);
 
     return {
       message:
