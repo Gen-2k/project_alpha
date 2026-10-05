@@ -123,6 +123,7 @@ export class OrganizationsController {
 
   @Post("invitations/accept")
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Accept an organization invitation",
@@ -326,6 +327,7 @@ export class OrganizationsController {
 
   @Post(":id/invitations")
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @UseGuards(OrgMembershipGuard)
   @RequireOrgRole("owner", "admin", "project_manager")
   @ApiOperation({

@@ -596,7 +596,8 @@ export class OrganizationsService {
             isNull(organizationInvitations.acceptedAt),
             gt(organizationInvitations.expiresAt, new Date()),
           ),
-        );
+        )
+        .for("update");
 
       if (!invite) {
         throw new BadRequestException(
