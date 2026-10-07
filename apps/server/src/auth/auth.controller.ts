@@ -5,13 +5,16 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Optional,
   Param,
+  ParseUUIDPipe,
   Post,
   Req,
   Res,
   UnauthorizedException,
   UsePipes,
 } from "@nestjs/common";
+import type { ConfigService } from "@nestjs/config";
 import {
   ApiBearerAuth,
   ApiBody,
@@ -36,7 +39,13 @@ import { ApiErrorResponseDto } from "../common/dto/error-response.dto.js";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe.js";
 import { AuthService } from "./auth.service.js";
 import type { AuthenticatedRequest } from "./auth.types.js";
-import { extractRequestMetadata } from "./auth.types.js";
+import {
+  clearRefreshTokenCookie,
+  extractRequestMetadata,
+  REFRESH_COOKIE_NAME,
+  resolveCookieSecure,
+  setRefreshTokenCookie,
+} from "./auth.types.js";
 import {
   AuthTokensResponseDto,
   LogoutResponseDto,
@@ -55,22 +64,20 @@ import { UpdatePasswordDto } from "./dto/update-password.dto.js";
 import { VerifyEmailDto } from "./dto/verify-email.dto.js";
 import { Public } from "./public.decorator.js";
 
-export const REFRESH_COOKIE_NAME = "refreshToken";
-export const REFRESH_COOKIE_PATH = "/api/v1/auth";
-
-export function clearRefreshTokenCookie(res: Response): void {
-  res.clearCookie(REFRESH_COOKIE_NAME, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: REFRESH_COOKIE_PATH,
-  });
-}
-
 @ApiTags("auth")
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  // ConfigService is global; optional here so existing single-arg unit tests
+  // keep working. Cookie `secure` comes from validated config with raw-env
+  // fallback (see resolveCookieSecure).
+  constructor(
+    private readonly authService: AuthService,
+    @Optional() private readonly config?: ConfigService,
+  ) {}
+
+  private get cookieSecure(): boolean {
+    return resolveCookieSecure(this.config);
+  }
 
   @Public()
   @Throttle({ default: { limit: 30, ttl: 60000 } })
@@ -167,6 +174,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post("logout")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -176,9 +184,14 @@ export class AuthController {
   })
   @ApiBody({ type: RefreshDto, required: false })
   @ApiResponse({ status: 200, type: LogoutResponseDto, description: "Logged out successfully." })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = this.extractRefreshToken(req);
-    clearRefreshTokenCookie(res);
+    clearRefreshTokenCookie(res, this.cookieSecure);
     if (token) {
       return this.authService.logout({ refreshToken: token });
     }
@@ -187,6 +200,7 @@ export class AuthController {
 
   @Post("logout-all")
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiBearerAuth("JWT-auth")
   @ApiOperation({
     summary: "Revoke all active sessions for current user",
@@ -194,12 +208,18 @@ export class AuthController {
   })
   @ApiResponse({ status: 200, type: LogoutResponseDto, description: "All sessions revoked." })
   @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
   async logoutAll(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) res: Response) {
-    this.clearRefreshTokenCookie(res);
+    clearRefreshTokenCookie(res, this.cookieSecure);
     return this.authService.logoutAll(req.user.sub);
   }
 
   @Get("sessions")
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiBearerAuth("JWT-auth")
   @ApiOperation({
     summary: "List active sessions for current user",
@@ -208,18 +228,33 @@ export class AuthController {
   })
   @ApiResponse({ status: 200, type: [SessionResponseDto], description: "List of active sessions." })
   @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
   sessions(@Req() req: AuthenticatedRequest) {
     return this.authService.listSessions(req.user.sub);
   }
 
   @Delete("sessions/:id")
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiBearerAuth("JWT-auth")
   @ApiOperation({ summary: "Revoke a specific active session" })
   @ApiParam({ name: "id", description: "Session UUID" })
   @ApiResponse({ status: 200, type: RevokeSessionResponseDto, description: "Session revoked." })
+  @ApiResponse({ status: 400, type: ApiErrorResponseDto, description: "Invalid session id." })
   @ApiResponse({ status: 401, type: ApiErrorResponseDto, description: "Missing or invalid token." })
-  revokeSession(@Param("id") sessionId: string, @Req() req: AuthenticatedRequest) {
+  @ApiResponse({
+    status: 429,
+    type: ApiErrorResponseDto,
+    description: "Too many requests; rate limit exceeded.",
+  })
+  revokeSession(
+    @Param("id", new ParseUUIDPipe()) sessionId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.authService.revokeSession(req.user.sub, sessionId);
   }
 
@@ -372,17 +407,7 @@ export class AuthController {
   }
 
   private setRefreshTokenCookie(res: Response, token: string): void {
-    res.cookie(REFRESH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: REFRESH_COOKIE_PATH,
-      maxAge: this.authService.refreshExpiresInMs,
-    });
-  }
-
-  private clearRefreshTokenCookie(res: Response): void {
-    clearRefreshTokenCookie(res);
+    setRefreshTokenCookie(res, token, this.authService.refreshExpiresInMs, this.cookieSecure);
   }
 
   private extractRefreshToken(req: Request): string | undefined {

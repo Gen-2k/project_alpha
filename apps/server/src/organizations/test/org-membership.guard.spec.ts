@@ -46,7 +46,7 @@ describe("OrgMembershipGuard", () => {
   it("should extract organizationId from req.params.organizationId for nested routes", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "owner" as const,
       createdAt: new Date(),
@@ -54,19 +54,22 @@ describe("OrgMembershipGuard", () => {
     };
     orgsService.getMembership.mockResolvedValueOnce(membership);
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { organizationId: "org-1" },
+      params: { organizationId: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);
 
     const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
-    expect(orgsService.getMembership).toHaveBeenCalledWith("org-1", "user-1");
+    expect(orgsService.getMembership).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "user-1",
+    );
   });
 
   it("should throw ForbiddenException if user has no id in token", async () => {
     const ctx = createMockContext({
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: {} as never,
     });
     await expect(guard.canActivate(ctx)).rejects.toThrow("Authentication is required");
@@ -75,7 +78,7 @@ describe("OrgMembershipGuard", () => {
   it("should throw ForbiddenException if user is not a member of the organization", async () => {
     orgsService.getMembership.mockResolvedValueOnce(undefined);
     const ctx = createMockContext({
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     });
     await expect(guard.canActivate(ctx)).rejects.toThrow(
@@ -86,7 +89,7 @@ describe("OrgMembershipGuard", () => {
   it("should permit member and attach membership to request when no roles required", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "developer" as const,
       createdAt: new Date(),
@@ -96,7 +99,7 @@ describe("OrgMembershipGuard", () => {
     reflector.getAllAndOverride.mockReturnValueOnce(undefined);
 
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);
@@ -109,7 +112,7 @@ describe("OrgMembershipGuard", () => {
   it("should permit member when their role meets or exceeds requirement", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "owner" as const,
       createdAt: new Date(),
@@ -119,7 +122,7 @@ describe("OrgMembershipGuard", () => {
     reflector.getAllAndOverride.mockReturnValueOnce(["admin"]); // Requires at least admin; owner has weight 50 >= 40
 
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);
@@ -131,7 +134,7 @@ describe("OrgMembershipGuard", () => {
   it("should throw ForbiddenException when member role is below requirement", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "developer" as const,
       createdAt: new Date(),
@@ -141,7 +144,7 @@ describe("OrgMembershipGuard", () => {
     reflector.getAllAndOverride.mockReturnValueOnce(["admin"]); // Developer (20) < Admin (40)
 
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);
@@ -154,7 +157,7 @@ describe("OrgMembershipGuard", () => {
   it("should permit reviewer when requirement is translator", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "reviewer" as const,
       createdAt: new Date(),
@@ -164,7 +167,7 @@ describe("OrgMembershipGuard", () => {
     reflector.getAllAndOverride.mockReturnValueOnce(["translator"]); // Reviewer (15) >= Translator (10)
 
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);
@@ -176,7 +179,7 @@ describe("OrgMembershipGuard", () => {
   it("should reject translator when requirement is reviewer", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "translator" as const,
       createdAt: new Date(),
@@ -186,7 +189,7 @@ describe("OrgMembershipGuard", () => {
     reflector.getAllAndOverride.mockReturnValueOnce(["reviewer"]); // Translator (10) < Reviewer (15)
 
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);
@@ -199,7 +202,7 @@ describe("OrgMembershipGuard", () => {
   it("should permit translator when requirement is viewer", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "translator" as const,
       createdAt: new Date(),
@@ -209,7 +212,7 @@ describe("OrgMembershipGuard", () => {
     reflector.getAllAndOverride.mockReturnValueOnce(["viewer"]); // Translator (10) >= Viewer (5)
 
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);
@@ -221,7 +224,7 @@ describe("OrgMembershipGuard", () => {
   it("should reject viewer when requirement is translator", async () => {
     const membership = {
       id: "mem-1",
-      organizationId: "org-1",
+      organizationId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
       role: "viewer" as const,
       createdAt: new Date(),
@@ -231,7 +234,7 @@ describe("OrgMembershipGuard", () => {
     reflector.getAllAndOverride.mockReturnValueOnce(["translator"]); // Viewer (5) < Translator (10)
 
     const req: Partial<OrgAuthenticatedRequest> = {
-      params: { id: "org-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
       user: { sub: "user-1", email: "ada@example.com" },
     };
     const ctx = createMockContext(req);

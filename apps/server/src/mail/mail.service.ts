@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import type { Transporter } from "nodemailer";
 import nodemailer from "nodemailer";
 
+import { RESET_TOKEN_LIFETIME_MS, VERIFICATION_TOKEN_LIFETIME_MS } from "../auth/auth.types.js";
+import { INVITATION_LIFETIME_MS } from "../organizations/organizations.types.js";
 import { renderAccountDeletedNotification } from "./templates/account-deleted.template.js";
 import { renderMemberAddedNotification } from "./templates/member-added.template.js";
 import { renderOrganizationInvitationEmail } from "./templates/organization-invitation.template.js";
@@ -74,10 +76,11 @@ export class MailService {
 
   async sendPasswordResetEmail(email: string, rawToken: string): Promise<void> {
     const resetUrl = `${this.frontendUrl}/reset-password?token=${rawToken}`;
+    const expiresInMinutes = RESET_TOKEN_LIFETIME_MS / 60000;
     const { subject, text, html } = renderPasswordResetEmail({
       email,
       resetUrl,
-      expiresInMinutes: 15,
+      expiresInMinutes,
     });
 
     await this.dispatch({
@@ -85,7 +88,7 @@ export class MailService {
       subject,
       text,
       html,
-      devLogSummary: `[DEV EMAIL DISPATCH] Password reset link for ${email}:\n>>> Reset URL: ${resetUrl}\n>>> Expires in: 15 minutes`,
+      devLogSummary: `[DEV EMAIL DISPATCH] Password reset link for ${email}:\n>>> Reset URL: ${resetUrl}\n>>> Expires in: ${String(expiresInMinutes)} minutes`,
     });
   }
 
@@ -115,10 +118,11 @@ export class MailService {
 
   async sendEmailVerificationEmail(email: string, rawToken: string): Promise<void> {
     const verificationUrl = `${this.frontendUrl}/verify-email?token=${rawToken}`;
+    const expiresInHours = VERIFICATION_TOKEN_LIFETIME_MS / 3600000;
     const { subject, text, html } = renderEmailVerificationEmail({
       email,
       verificationUrl,
-      expiresInHours: 24,
+      expiresInHours,
     });
 
     await this.dispatch({
@@ -126,7 +130,7 @@ export class MailService {
       subject,
       text,
       html,
-      devLogSummary: `[DEV EMAIL DISPATCH] Email verification link for ${email}:\n>>> Verification URL: ${verificationUrl}\n>>> Expires in: 24 hours`,
+      devLogSummary: `[DEV EMAIL DISPATCH] Email verification link for ${email}:\n>>> Verification URL: ${verificationUrl}\n>>> Expires in: ${String(expiresInHours)} hours`,
     });
   }
 
@@ -142,6 +146,7 @@ export class MailService {
     },
   ): Promise<void> {
     const inviteUrl = `${this.frontendUrl}/accept-invitation?token=${details.rawToken}`;
+    const expiresInDays = details.expiresInDays ?? INVITATION_LIFETIME_MS / 86400000;
     const { subject, text, html } = renderOrganizationInvitationEmail({
       email,
       organizationName: details.organizationName,
@@ -149,7 +154,7 @@ export class MailService {
       inviterEmail: details.inviterEmail,
       role: details.role,
       inviteUrl,
-      expiresInDays: details.expiresInDays ?? 7,
+      expiresInDays,
     });
 
     await this.dispatch({
@@ -157,7 +162,7 @@ export class MailService {
       subject,
       text,
       html,
-      devLogSummary: `[DEV EMAIL DISPATCH] Organization invitation for ${email} to join ${details.organizationName}:\n>>> Invite URL: ${inviteUrl}\n>>> Expires in: ${String(details.expiresInDays ?? 7)} days`,
+      devLogSummary: `[DEV EMAIL DISPATCH] Organization invitation for ${email} to join ${details.organizationName}:\n>>> Invite URL: ${inviteUrl}\n>>> Expires in: ${String(expiresInDays)} days`,
     });
   }
 

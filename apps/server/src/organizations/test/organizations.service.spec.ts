@@ -92,8 +92,13 @@ function createMockDb(options?: {
     });
   };
 
-  const createJoin = () => ({
+  const createJoin = (): {
+    innerJoin: () => unknown;
+    leftJoin: () => unknown;
+    where: () => unknown;
+  } => ({
     innerJoin: () => createJoin(),
+    leftJoin: () => createJoin(),
     where: () => createQuery(),
   });
 
@@ -103,6 +108,7 @@ function createMockDb(options?: {
       from: () => ({
         where: () => createQuery(),
         innerJoin: () => createJoin(),
+        leftJoin: () => createJoin(),
       }),
     })),
     insert: vi.fn(() => ({

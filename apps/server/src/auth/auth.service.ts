@@ -41,7 +41,13 @@ import ms from "ms";
 
 import { MailService } from "../mail/mail.service.js";
 import { UsersService } from "../users/users.service.js";
-import type { JwtPayload, RefreshPayload, RequestMetadata } from "./auth.types.js";
+import {
+  type JwtPayload,
+  type RefreshPayload,
+  type RequestMetadata,
+  RESET_TOKEN_LIFETIME_MS,
+  VERIFICATION_TOKEN_LIFETIME_MS,
+} from "./auth.types.js";
 import {
   checkEmailDomain,
   isDisposableEmail,
@@ -50,11 +56,12 @@ import {
 
 const BCRYPT_COST = 12;
 const ROTATION_GRACE_PERIOD_MS = 30_000;
-const RESET_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
-const VERIFICATION_TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000;
-// Precomputed bcrypt cost-12 hash used to equalize execution time on unknown email
-// so attackers cannot perform timing attacks to enumerate registered accounts (OWASP ASVS 2.8.1).
-const DUMMY_BCRYPT_HASH = "$2b$12$e8nGyvKz8vK5e.gM1L9OVuP4oN1D4hJ7gP.5rM.1gV8z7k0s3y1a2";
+// Precomputed valid bcrypt cost-12 hash (of an unused dummy password) used
+// to equalize execution time on unknown email so attackers cannot perform
+// timing attacks to enumerate registered accounts (OWASP ASVS 2.8.1).
+// Must stay a genuine 60-char bcrypt hash: malformed hashes make
+// bcrypt.compare fast-fail and void the mitigation.
+const DUMMY_BCRYPT_HASH = "$2b$12$hyAB4DVuYRAUqn57QTdCUe.JqLrsyEuzBTCHXU0O/L7M.ZRJ/MWPm";
 const GENERIC_FORGOT_PASSWORD_MESSAGE =
   "If an account exists with that email address, password reset instructions have been sent. Please check your inbox and spam folder.";
 const GENERIC_RESEND_VERIFICATION_MESSAGE =
@@ -73,11 +80,12 @@ function hashToken(token: string): string {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  // Milliseconds, converted once: jsonwebtoken accepts ms numbers, and a
-  // number leaves no ambiguity about units at signing time. The single
-  // cast is sound because env validation already constrains shape to
-  // /^\d+[smhd]$/ (a subset of StringValue).
-  private readonly accessExpiresInMs: number;
+  // Duration strings go to jsonwebtoken (numeric expiresIn is seconds,
+  // so ms("15m")=900000 would sign ~10-day tokens). Millisecond copy is
+  // for DB expiresAt + cookie maxAge only. Env validation constrains
+  // shape to /^\d+[smhd]$/ (a subset of StringValue).
+  private readonly accessExpiresIn: StringValue;
+  private readonly refreshExpiresIn: StringValue;
   readonly refreshExpiresInMs: number;
   private readonly emailNormalizationEnabled: boolean;
 
@@ -88,10 +96,9 @@ export class AuthService {
     @Inject(DB) private readonly db: Db,
     private readonly mailService: MailService,
   ) {
-    this.accessExpiresInMs = ms(config.getOrThrow<string>("JWT_ACCESS_EXPIRES_IN") as StringValue);
-    this.refreshExpiresInMs = ms(
-      config.getOrThrow<string>("JWT_REFRESH_EXPIRES_IN") as StringValue,
-    );
+    this.accessExpiresIn = config.getOrThrow<string>("JWT_ACCESS_EXPIRES_IN") as StringValue;
+    this.refreshExpiresIn = config.getOrThrow<string>("JWT_REFRESH_EXPIRES_IN") as StringValue;
+    this.refreshExpiresInMs = ms(this.refreshExpiresIn);
     this.emailNormalizationEnabled =
       typeof config.get === "function" ? (config.get<boolean>("NORMALIZE_EMAIL") ?? false) : false;
   }
@@ -327,12 +334,12 @@ export class AuthService {
   ): Promise<AuthTokens> {
     const payload: JwtPayload = { sub: user.id, email: user.email, locale: user.locale };
     const accessToken = await this.jwtService.signAsync(payload, {
-      expiresIn: this.accessExpiresInMs,
+      expiresIn: this.accessExpiresIn,
     });
     const refreshToken = await this.jwtService.signAsync(
       { ...payload, type: "refresh", familyId } as const,
       {
-        expiresIn: this.refreshExpiresInMs,
+        expiresIn: this.refreshExpiresIn,
         jwtid: randomUUID(),
       },
     );
@@ -452,7 +459,11 @@ export class AuthService {
 
     const user = await this.usersService.findById(record.userId);
     if (user) {
-      await this.mailService.sendPasswordChangedNotification(user.email);
+      try {
+        await this.mailService.sendPasswordChangedNotification(user.email);
+      } catch (err) {
+        this.logger.warn(`Failed to dispatch password changed notification: ${String(err)}`);
+      }
     }
 
     return {

@@ -7,6 +7,8 @@ import { products } from "@repo/database/schema";
 import type { CreateProductDto, ProductDto, UpdateProductDto } from "@repo/validation/products";
 import { and, asc, eq, sql } from "drizzle-orm";
 
+import { isUniqueViolation, slugify } from "../common/utils/shared.util.js";
+
 const safeProductColumns = {
   id: products.id,
   organizationId: products.organizationId,
@@ -16,19 +18,6 @@ const safeProductColumns = {
   createdAt: products.createdAt,
   updatedAt: products.updatedAt,
 };
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-}
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return base.length >= 3 ? base : `prod-${randomBytes(3).toString("hex")}`;
-}
 
 @Injectable()
 export class ProductsService {
@@ -55,7 +44,7 @@ export class ProductsService {
     }
 
     // 2. Atomic creation if not found
-    let slug = slugify(trimmed);
+    let slug = slugify(trimmed, "prod");
     try {
       const [created] = await this.db
         .insert(products)
@@ -95,7 +84,7 @@ export class ProductsService {
   }
 
   async create(organizationId: string, input: CreateProductDto): Promise<ProductDto> {
-    const slug = input.slug ? input.slug.toLowerCase().trim() : slugify(input.name);
+    const slug = input.slug ? input.slug.toLowerCase().trim() : slugify(input.name, "prod");
 
     try {
       const [product] = await this.db

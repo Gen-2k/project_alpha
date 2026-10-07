@@ -71,13 +71,14 @@ export class UserResponseDto implements SafeUser {
 export class AuthTokensResponseDto implements AuthTokensDto {
   @ApiProperty({
     example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    description: "JWT access token (15-minute validity)",
+    description: "Short-lived JWT access token (lifetime is env-driven)",
   })
   accessToken!: string;
 
   @ApiProperty({
     example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    description: "JWT refresh token (7-day validity, also set in HttpOnly cookie for web)",
+    description:
+      "Rotating refresh token (lifetime is env-driven; also set in HttpOnly cookie for web)",
   })
   refreshToken!: string;
 

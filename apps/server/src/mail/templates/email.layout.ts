@@ -26,11 +26,31 @@ export function escapeHtml(unsafe: string): string {
     .replaceAll("'", "&#039;");
 }
 
+// URLs are interpolated into href attributes: only http(s) pass through,
+// everything else (javascript:, data:, ...) becomes "#" so a future caller
+// cannot introduce href XSS. renderEmailLayout escapes the sanitized URL
+// again via escapeHtml before interpolating.
+export function sanitizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return "#";
+}
+
+// Subjects become SMTP headers: strip CR/LF to block header injection.
+// Nodemailer sanitizes too, but defense belongs at the template boundary.
+export function sanitizeSubject(subject: string): string {
+  return subject.replace(/[\r\n]+/g, " ").trim();
+}
+
 export function renderEmailLayout(options: EmailLayoutOptions): string {
+  const safeCtaUrl = options.cta ? escapeHtml(sanitizeUrl(options.cta.url)) : "";
+  const safeFallbackUrl = options.fallbackUrl ? escapeHtml(sanitizeUrl(options.fallbackUrl)) : "";
   const ctaHtml = options.cta
     ? `
       <div style="margin: 28px 0; text-align: center;">
-        <a href="${options.cta.url}" style="background-color: #4f46e5; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 6px; display: inline-block;">${escapeHtml(options.cta.label)}</a>
+        <a href="${safeCtaUrl}" style="background-color: #4f46e5; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 6px; display: inline-block;">${escapeHtml(options.cta.label)}</a>
       </div>
     `
     : "";
@@ -63,7 +83,7 @@ export function renderEmailLayout(options: EmailLayoutOptions): string {
         If the button above does not work, copy and paste this link into your web browser:
       </p>
       <p style="margin: 0; font-size: 12px; word-break: break-all; color: #4f46e5;">
-        <a href="${options.fallbackUrl}" style="color: #4f46e5; text-decoration: underline;">${options.fallbackUrl}</a>
+        <a href="${safeFallbackUrl}" style="color: #4f46e5; text-decoration: underline;">${safeFallbackUrl}</a>
       </p>
     `
     : "";

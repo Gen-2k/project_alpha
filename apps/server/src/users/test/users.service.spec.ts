@@ -36,14 +36,18 @@ function fakeDb(options?: {
     return options?.selectRows ?? [safeRow];
   };
 
-  return {
+  const db = {
+    transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(db),
     select: () => ({
       from: () => {
         const rows = nextSelectRows();
+        const whereResult = Object.assign(Promise.resolve(rows), {
+          for: () => Promise.resolve(rows),
+        });
         return {
-          where: () => Promise.resolve(rows),
+          where: () => whereResult,
           innerJoin: () => ({
-            where: () => Promise.resolve(rows),
+            where: () => whereResult,
           }),
         };
       },
@@ -75,7 +79,8 @@ function fakeDb(options?: {
         return Promise.resolve();
       },
     }),
-  } as unknown as Db;
+  };
+  return db as unknown as Db;
 }
 
 describe("UsersService", () => {
@@ -158,9 +163,17 @@ describe("UsersService", () => {
   describe("delete", () => {
     it("should execute delete for user id", async () => {
       let deleted = false;
-      const service = new UsersService(fakeDb({ deleteSpy: () => (deleted = true) }));
+      const service = new UsersService(
+        fakeDb({ selectRows: [], deleteSpy: () => (deleted = true) }),
+      );
       await service.delete(safeRow.id);
       expect(deleted).toBe(true);
+    });
+
+    it("should refuse delete while sole owner inside the transaction", async () => {
+      const owned = [{ id: "11111111-1111-4111-8111-111111111111" }];
+      const service = new UsersService(fakeDb({ selectQueue: [owned, []] }));
+      await expect(service.delete(safeRow.id)).rejects.toThrow("sole owner of an organization");
     });
   });
 

@@ -8,12 +8,14 @@ import {
   HttpStatus,
   Logger,
   NotFoundException,
+  Optional,
   Patch,
   Req,
   Res,
   UnauthorizedException,
   UsePipes,
 } from "@nestjs/common";
+import type { ConfigService } from "@nestjs/config";
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
 import type { SafeUser } from "@repo/validation/auth";
@@ -21,8 +23,8 @@ import { deleteAccountSchema, updateProfileSchema } from "@repo/validation/auth"
 import bcrypt from "bcryptjs";
 import type { Response } from "express";
 
-import { clearRefreshTokenCookie } from "../auth/auth.controller.js";
 import type { AuthenticatedRequest } from "../auth/auth.types.js";
+import { clearRefreshTokenCookie, resolveCookieSecure } from "../auth/auth.types.js";
 import { UserResponseDto } from "../auth/dto/auth-response.dto.js";
 import { ApiErrorResponseDto } from "../common/dto/error-response.dto.js";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe.js";
@@ -39,6 +41,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   @Get("me")
@@ -132,7 +135,7 @@ export class UsersController {
     }
 
     await this.usersService.delete(user.id);
-    clearRefreshTokenCookie(res);
+    clearRefreshTokenCookie(res, resolveCookieSecure(this.config));
 
     try {
       await this.mailService.sendAccountDeletedNotification(user.email);

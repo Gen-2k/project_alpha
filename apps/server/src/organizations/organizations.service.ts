@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import type { Db } from "@repo/database/client";
 import { DB } from "@repo/database/client";
+import type { OrganizationMember } from "@repo/database/schema";
 import {
   organizationInvitations,
   organizationMembers,
@@ -33,9 +34,10 @@ import type {
 import bcrypt from "bcryptjs";
 import { and, eq, gt, isNull } from "drizzle-orm";
 
+import { isUniqueViolation, slugify } from "../common/utils/shared.util.js";
 import { MailService } from "../mail/mail.service.js";
 import { UsersService } from "../users/users.service.js";
-import { ROLE_HIERARCHY } from "./organizations.types.js";
+import { INVITATION_LIFETIME_MS, ROLE_HIERARCHY } from "./organizations.types.js";
 
 const safeOrgColumns = {
   id: organizations.id,
@@ -45,19 +47,6 @@ const safeOrgColumns = {
   createdAt: organizations.createdAt,
   updatedAt: organizations.updatedAt,
 };
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-}
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return base.length >= 3 ? base : `org-${randomBytes(3).toString("hex")}`;
-}
 
 @Injectable()
 export class OrganizationsService {
@@ -231,21 +220,37 @@ export class OrganizationsService {
       throw new ConflictException("User is already a member of this organization");
     }
 
-    const [member] = await this.db
-      .insert(organizationMembers)
-      .values({
-        organizationId,
-        userId: user.id,
-        role: dto.role,
-      })
-      .returning({
-        id: organizationMembers.id,
-        organizationId: organizationMembers.organizationId,
-        userId: organizationMembers.userId,
-        role: organizationMembers.role,
-        createdAt: organizationMembers.createdAt,
-        updatedAt: organizationMembers.updatedAt,
-      });
+    let member:
+      | Pick<
+          OrganizationMember,
+          "id" | "organizationId" | "userId" | "role" | "createdAt" | "updatedAt"
+        >
+      | undefined;
+    try {
+      const [row] = await this.db
+        .insert(organizationMembers)
+        .values({
+          organizationId,
+          userId: user.id,
+          role: dto.role,
+        })
+        .returning({
+          id: organizationMembers.id,
+          organizationId: organizationMembers.organizationId,
+          userId: organizationMembers.userId,
+          role: organizationMembers.role,
+          createdAt: organizationMembers.createdAt,
+          updatedAt: organizationMembers.updatedAt,
+        });
+      member = row;
+    } catch (error) {
+      // Closes the check-then-insert race: concurrent adds hit the
+      // (organizationId, userId) unique index instead of creating dupes.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException("User is already a member of this organization");
+      }
+      throw error;
+    }
 
     if (!member) {
       throw new Error("Failed to create membership record");
@@ -450,7 +455,7 @@ export class OrganizationsService {
 
     const rawToken = randomBytes(32).toString("hex");
     const tokenHash = createHash("sha256").update(rawToken).digest("hex");
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const expiresAt = new Date(Date.now() + INVITATION_LIFETIME_MS);
 
     const [existingInvite] = await this.db
       .select()
@@ -460,6 +465,7 @@ export class OrganizationsService {
           eq(organizationInvitations.organizationId, organizationId),
           eq(organizationInvitations.email, input.email),
           isNull(organizationInvitations.acceptedAt),
+          gt(organizationInvitations.expiresAt, new Date()),
         ),
       );
 
@@ -506,7 +512,7 @@ export class OrganizationsService {
           inviterEmail: inviter?.email ?? "An administrator",
           role: input.role,
           rawToken,
-          expiresInDays: 7,
+          expiresInDays: INVITATION_LIFETIME_MS / 86400000,
         });
       } catch (err) {
         this.logger.warn(`Failed to dispatch organization invitation email: ${String(err)}`);
@@ -563,7 +569,9 @@ export class OrganizationsService {
       })
       .from(organizationInvitations)
       .innerJoin(organizations, eq(organizations.id, organizationInvitations.organizationId))
-      .innerJoin(users, eq(users.id, organizationInvitations.invitedByUserId))
+      // Left join: invitation must survive inviter departure/account cleanup
+      // instead of reporting valid tokens as invalid.
+      .leftJoin(users, eq(users.id, organizationInvitations.invitedByUserId))
       .where(
         and(
           eq(organizationInvitations.tokenHash, tokenHash),
@@ -576,7 +584,13 @@ export class OrganizationsService {
       throw new NotFoundException("Invitation is invalid or has expired");
     }
 
-    return row;
+    // Left join above: a departed inviter yields nulls. The display text
+    // tolerates it ("An administrator"); the invitee address never does.
+    return {
+      ...row,
+      inviterName: row.inviterName ?? null,
+      inviterEmail: row.inviterEmail ?? "An administrator",
+    };
   }
 
   async acceptInvitation(

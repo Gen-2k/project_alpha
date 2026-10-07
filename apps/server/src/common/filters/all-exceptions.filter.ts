@@ -3,6 +3,8 @@ import { Catch, HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { Response } from "express";
 
 import type { RequestWithId } from "../middleware/request-id.middleware.js";
+import { REQUEST_ID_HEADER } from "../middleware/request-id.middleware.js";
+import { requestPathname } from "../utils/shared.util.js";
 
 export interface ApiErrorIssue {
   path: string;
@@ -38,6 +40,9 @@ function getHttpErrorName(status: number): string {
   );
 }
 
+// Legacy backstop only: new code must throw explicit `{ code }` (as
+// ZodValidationPipe does) instead of relying on English message sniffing.
+// Kept so older throw sites without a code still map to a stable contract.
 function deriveErrorCode(status: number, message: string, hasIssues: boolean): string {
   switch (status) {
     case 400:
@@ -73,6 +78,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<RequestWithId>();
 
     if (response.headersSent) {
+      this.logger.error(
+        `Response already sent for ${request.method} ${requestPathname(request.url)}; cannot render error body`,
+      );
       return;
     }
 
@@ -111,23 +119,38 @@ export class AllExceptionsFilter implements ExceptionFilter {
         }
 
         if (Array.isArray(record.issues)) {
-          issues = record.issues as ApiErrorIssue[];
+          const parsed = (record.issues as unknown[]).filter(
+            (item): item is ApiErrorIssue =>
+              typeof item === "object" &&
+              item !== null &&
+              typeof (item as Record<string, unknown>).path === "string" &&
+              typeof (item as Record<string, unknown>).message === "string",
+          );
+          issues = parsed.map((item) => ({ path: item.path, message: item.message }));
         }
       }
 
       if (code === "INTERNAL_SERVER_ERROR") {
         code = deriveErrorCode(status, message, Boolean(issues && issues.length > 0));
       }
+
+      if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+        const reqId = typeof request.id === "string" ? request.id : "unknown";
+        this.logger.error(
+          `[${reqId}] HTTP ${String(status)} on ${request.method} ${requestPathname(request.url)}: ${message}`,
+          exception instanceof Error ? exception.stack : undefined,
+        );
+      }
     } else {
       const err = exception instanceof Error ? exception : new Error(String(exception));
       const reqId = typeof request.id === "string" ? request.id : "unknown";
       this.logger.error(
-        `[${reqId}] Unhandled exception on ${request.method} ${request.url}: ${err.message}`,
+        `[${reqId}] Unhandled exception on ${request.method} ${requestPathname(request.url)}: ${err.message}`,
         err.stack,
       );
     }
 
-    const rawHeader = request.headers[REQUEST_ID_HEADER_NAME];
+    const rawHeader = request.headers[REQUEST_ID_HEADER];
     const headerRequestId = typeof rawHeader === "string" ? rawHeader : undefined;
     const requestId = typeof request.id === "string" ? request.id : headerRequestId;
 
@@ -138,12 +161,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message,
       ...(issues ? { issues } : {}),
       timestamp: new Date().toISOString(),
-      path: request.url,
+      // Never echo query strings: tokens travel as `?token=`.
+      path: requestPathname(request.url),
       ...(requestId ? { requestId } : {}),
     };
 
     response.status(status).json(body);
   }
 }
-
-const REQUEST_ID_HEADER_NAME = "x-request-id";

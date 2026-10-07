@@ -1,6 +1,7 @@
-import { Global, Module } from "@nestjs/common";
+import { Global, Inject, Module, type OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { createDb, DB } from "@repo/database/client";
+import type { Db } from "@repo/database/client";
+import { closeDb, createDb, DB } from "@repo/database/client";
 
 // Global: infrastructure crosses every module, and importing this module
 // in each feature module would be pure ceremony. The factory reads the
@@ -16,4 +17,10 @@ import { createDb, DB } from "@repo/database/client";
   ],
   exports: [DB],
 })
-export class DatabaseModule {}
+export class DatabaseModule implements OnModuleDestroy {
+  constructor(@Inject(DB) private readonly db: Db) {}
+
+  async onModuleDestroy(): Promise<void> {
+    await closeDb(this.db);
+  }
+}

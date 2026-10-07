@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Db } from "@repo/database/client";
 import { DB } from "@repo/database/client";
@@ -7,6 +5,7 @@ import { products, projects } from "@repo/database/schema";
 import type { CreateProjectDto, ProjectDto, UpdateProjectDto } from "@repo/validation/projects";
 import { and, desc, eq, type SQL } from "drizzle-orm";
 
+import { isUniqueViolation, slugify } from "../common/utils/shared.util.js";
 import { ProductsService } from "../products/products.service.js";
 
 const safeProjectColumns = {
@@ -22,19 +21,6 @@ const safeProjectColumns = {
   updatedAt: projects.updatedAt,
 };
 
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-}
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return base.length >= 3 ? base : `proj-${randomBytes(3).toString("hex")}`;
-}
-
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -43,7 +29,7 @@ export class ProjectsService {
   ) {}
 
   async create(organizationId: string, input: CreateProjectDto): Promise<ProjectDto> {
-    const slug = input.slug ? input.slug.toLowerCase().trim() : slugify(input.name);
+    const slug = input.slug ? input.slug.toLowerCase().trim() : slugify(input.name, "proj");
 
     // Resolve product: either existing ID or find-or-create inline by name
     let resolvedProductId: string | null = null;

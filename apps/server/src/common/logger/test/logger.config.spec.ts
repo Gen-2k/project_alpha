@@ -130,19 +130,20 @@ describe("createLoggerConfig", () => {
     const mockReq = {
       id: "test-id",
       method: "GET",
-      url: "/api/v1/users/me",
+      url: "/api/v1/users/me?token=secret-should-never-log",
       query: { filter: "active" },
       headers: { "x-secret-header": "value", host: "localhost" },
     };
     const serializedReq = serializers.req(mockReq);
+    // Query strings (tokens) must never reach logs: pathname only, no query.
     expect(serializedReq).toEqual({
       id: "test-id",
       method: "GET",
       url: "/api/v1/users/me",
-      query: { filter: "active" },
     });
     // Headers should NOT be included in serialized output
     expect(serializedReq).not.toHaveProperty("headers");
+    expect(serializedReq).not.toHaveProperty("query");
 
     const mockRes = {
       statusCode: 200,

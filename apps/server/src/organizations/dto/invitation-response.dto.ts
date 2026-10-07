@@ -69,7 +69,4 @@ export class AcceptInvitationResponseDto {
 
   @ApiProperty({ example: "01924b21-7b3b-7a1b-9c2d-3e4f5a6b7c8e" })
   organizationId!: string;
-
-  @ApiPropertyOptional({ example: "eyJhbGciOiJIUzI1Ni..." })
-  accessToken?: string;
 }

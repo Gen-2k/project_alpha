@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Req,
@@ -167,9 +168,12 @@ export class OrganizationsController {
   })
   @ApiParam({ name: "id", description: "Organization UUIDv7" })
   @ApiResponse({ status: 200, type: OrganizationResponseDto, description: "Organization details." })
-  @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Not a member." })
-  @ApiResponse({ status: 404, type: ApiErrorResponseDto, description: "Not found." })
-  async getById(@Param("id") id: string): Promise<OrganizationResponseDto> {
+  @ApiResponse({
+    status: 403,
+    type: ApiErrorResponseDto,
+    description: "Not a member or not found (existence hidden).",
+  })
+  async getById(@Param("id", new ParseUUIDPipe()) id: string): Promise<OrganizationResponseDto> {
     const org = await this.orgsService.findById(id);
     if (!org) {
       throw new ForbiddenException("You do not have access to this organization");
@@ -195,7 +199,7 @@ export class OrganizationsController {
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Slug collision." })
   @UsePipes(new ZodValidationPipe(updateOrganizationSchema))
   async update(
-    @Param("id") id: string,
+    @Param("id", new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateOrganizationDto,
   ): Promise<OrganizationResponseDto> {
     return this.orgsService.update(id, dto);
@@ -208,12 +212,12 @@ export class OrganizationsController {
   @ApiOperation({
     summary: "Delete organization",
     description:
-      "Permanently deletes an organization and cascades to all its members and projects. Restricted strictly to the owner.",
+      "Permanently deletes an organization and cascades to members, invitations, products, and projects. Restricted strictly to the owner.",
   })
   @ApiParam({ name: "id", description: "Organization UUIDv7" })
   @ApiResponse({ status: 200, description: "Organization deleted successfully." })
   @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Only owner can delete." })
-  async delete(@Param("id") id: string): Promise<{ message: string }> {
+  async delete(@Param("id", new ParseUUIDPipe()) id: string): Promise<{ message: string }> {
     await this.orgsService.delete(id);
     return { message: "Organization deleted successfully" };
   }
@@ -231,7 +235,9 @@ export class OrganizationsController {
     type: [OrganizationMemberResponseDto],
     description: "List of members.",
   })
-  async listMembers(@Param("id") id: string): Promise<OrganizationMemberResponseDto[]> {
+  async listMembers(
+    @Param("id", new ParseUUIDPipe()) id: string,
+  ): Promise<OrganizationMemberResponseDto[]> {
     return this.orgsService.listMembers(id);
   }
 
@@ -242,7 +248,7 @@ export class OrganizationsController {
   @ApiOperation({
     summary: "Add a member to the organization",
     description:
-      "Adds an existing user to the organization by email address. Owners and admins can assign any role below or equal to their level. Project managers can assign operational roles (developer, reviewer, translator, viewer).",
+      "Adds an existing user to the organization by email address. Callers can only assign roles strictly below their own.",
   })
   @ApiParam({ name: "id", description: "Organization UUIDv7" })
   @ApiBody({ type: AddMemberDto })
@@ -256,7 +262,7 @@ export class OrganizationsController {
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Already a member." })
   @UsePipes(new ZodValidationPipe(addMemberSchema))
   async addMember(
-    @Param("id") id: string,
+    @Param("id", new ParseUUIDPipe()) id: string,
     @Body() dto: AddMemberDto,
     @Req() req: OrgAuthenticatedRequest,
   ): Promise<OrganizationMemberResponseDto> {
@@ -283,8 +289,8 @@ export class OrganizationsController {
   @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Insufficient permissions." })
   @UsePipes(new ZodValidationPipe(updateMemberRoleSchema))
   async updateMemberRole(
-    @Param("id") id: string,
-    @Param("memberId") memberId: string,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Param("memberId", new ParseUUIDPipe()) memberId: string,
     @Body() dto: UpdateMemberRoleDto,
     @Req() req: OrgAuthenticatedRequest,
   ): Promise<OrganizationMemberResponseDto> {
@@ -309,8 +315,8 @@ export class OrganizationsController {
   })
   @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Insufficient permissions." })
   async removeMember(
-    @Param("id") id: string,
-    @Param("memberId") memberId: string,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Param("memberId", new ParseUUIDPipe()) memberId: string,
     @Req() req: OrgAuthenticatedRequest,
   ): Promise<{ message: string }> {
     const callerMembership = req.orgMembership;
@@ -347,7 +353,7 @@ export class OrganizationsController {
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "User is already a member." })
   @UsePipes(new ZodValidationPipe(createInvitationSchema))
   async createInvitation(
-    @Param("id") id: string,
+    @Param("id", new ParseUUIDPipe()) id: string,
     @Body() dto: CreateInvitationDtoClass,
     @Req() req: OrgAuthenticatedRequest,
   ): Promise<OrganizationInvitationResponseDto> {
@@ -373,7 +379,9 @@ export class OrganizationsController {
     description: "List of pending invitations.",
   })
   @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Insufficient permissions." })
-  async listInvitations(@Param("id") id: string): Promise<OrganizationInvitationResponseDto[]> {
+  async listInvitations(
+    @Param("id", new ParseUUIDPipe()) id: string,
+  ): Promise<OrganizationInvitationResponseDto[]> {
     return this.orgsService.listInvitations(id);
   }
 
@@ -391,8 +399,8 @@ export class OrganizationsController {
   @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Insufficient permissions." })
   @ApiResponse({ status: 404, type: ApiErrorResponseDto, description: "Invitation not found." })
   async revokeInvitation(
-    @Param("id") id: string,
-    @Param("invitationId") invitationId: string,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Param("invitationId", new ParseUUIDPipe()) invitationId: string,
   ): Promise<{ message: string }> {
     await this.orgsService.revokeInvitation(id, invitationId);
     return { message: "Invitation revoked successfully" };

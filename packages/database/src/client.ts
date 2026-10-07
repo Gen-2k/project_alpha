@@ -16,7 +16,22 @@ export const DB = Symbol("DB");
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
+const dbClients = new WeakMap<Db, ReturnType<typeof postgres>>();
+
 export function createDb(url: string): Db {
   const client = postgres(url, { max: 10 });
-  return drizzle(client, { schema });
+  const db = drizzle(client, { schema });
+  dbClients.set(db, client);
+  return db;
+}
+
+// Graceful shutdown: DatabaseModule calls this on destroy so SIGTERM/HMR
+// can drain PG instead of leaking connections. Unknown (e.g. stubbed test)
+// dbs resolve silently.
+export async function closeDb(db: Db): Promise<void> {
+  const client = dbClients.get(db);
+  if (client) {
+    // postgres-js `end` timeout is in seconds: wait up to 5s for drain.
+    await client.end({ timeout: 5 });
+  }
 }

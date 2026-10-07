@@ -1,4 +1,4 @@
-import { escapeHtml, renderEmailLayout } from "./email.layout.js";
+import { escapeHtml, renderEmailLayout, sanitizeSubject } from "./email.layout.js";
 import type { RenderedEmail } from "./password-reset.template.js";
 
 export interface OrganizationInvitationProps {
@@ -21,7 +21,9 @@ export function renderOrganizationInvitationEmail(
     : props.inviterEmail;
   const escapedInviter = escapeHtml(inviterDisplay);
   const escapedRole = escapeHtml(props.role);
-  const subject = `You've been invited to join ${props.organizationName} on Project Alpha`;
+  const subject = sanitizeSubject(
+    `You've been invited to join ${props.organizationName} on Project Alpha`,
+  );
 
   const text = `Hello,\n\n${inviterDisplay} has invited you to join ${props.organizationName} as a ${props.role} on Project Alpha.\n\nPlease accept your invitation by clicking the link below:\n${props.inviteUrl}\n\nThis invitation link will expire in ${String(expiresInDays)} days.\n\nIf you were not expecting this invitation, you can safely ignore this email.\n\nBest regards,\nThe Project Alpha Team`;
 

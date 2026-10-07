@@ -1,4 +1,4 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import type { RegisterDto as IRegisterDto } from "@repo/validation/auth";
 
 export class RegisterDto implements IRegisterDto {
@@ -16,4 +16,16 @@ export class RegisterDto implements IRegisterDto {
     maxLength: 72,
   })
   password!: string;
+
+  @ApiPropertyOptional({ example: "Ada Lovelace", description: "Display name (max 255 chars)" })
+  name?: string;
+
+  @ApiPropertyOptional({ example: "en-US", description: "BCP 47 locale tag (max 35 chars)" })
+  locale?: string;
+
+  @ApiPropertyOptional({ example: "UTC", description: "IANA timezone (max 64 chars)" })
+  timezone?: string;
+
+  @ApiPropertyOptional({ example: "US", description: "ISO 3166-1 alpha-2 country code" })
+  countryCode?: string;
 }

@@ -3,7 +3,6 @@ import { ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { JwtModule } from "@nestjs/jwt";
 import type { StringValue } from "ms";
-import ms from "ms";
 
 import { UsersModule } from "../users/users.module.js";
 import { AuthController } from "./auth.controller.js";
@@ -18,8 +17,11 @@ import { TokenCleanupTask } from "./tasks/token-cleanup.task.js";
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>("JWT_SECRET"),
+        // Pass the duration string through: jsonwebtoken numeric expiresIn
+        // is seconds, so ms("15m")=900000 would become ~10 days. Strings
+        // ("15m"/"7d") are parsed unambiguously via ms internally.
         signOptions: {
-          expiresIn: ms(config.getOrThrow<string>("JWT_ACCESS_EXPIRES_IN") as StringValue),
+          expiresIn: config.getOrThrow<string>("JWT_ACCESS_EXPIRES_IN") as StringValue,
         },
       }),
     }),

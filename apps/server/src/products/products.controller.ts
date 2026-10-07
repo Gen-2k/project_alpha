@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   UseGuards,
@@ -59,7 +60,7 @@ export class ProductsController {
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Product slug collision." })
   @UsePipes(new ZodValidationPipe(createProductSchema))
   async create(
-    @Param("organizationId") organizationId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
     @Body() dto: CreateProductDto,
   ): Promise<ProductResponseDto> {
     return this.productsService.create(organizationId, dto);
@@ -82,7 +83,9 @@ export class ProductsController {
     type: ApiErrorResponseDto,
     description: "Not an organization member.",
   })
-  async list(@Param("organizationId") organizationId: string): Promise<ProductResponseDto[]> {
+  async list(
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+  ): Promise<ProductResponseDto[]> {
     return this.productsService.listForOrganization(organizationId);
   }
 
@@ -105,8 +108,8 @@ export class ProductsController {
   })
   @ApiResponse({ status: 404, type: ApiErrorResponseDto, description: "Product not found." })
   async getById(
-    @Param("organizationId") organizationId: string,
-    @Param("productId") productId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+    @Param("productId", new ParseUUIDPipe()) productId: string,
   ): Promise<ProductResponseDto> {
     return this.productsService.findById(organizationId, productId);
   }
@@ -132,8 +135,8 @@ export class ProductsController {
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Slug collision." })
   @UsePipes(new ZodValidationPipe(updateProductSchema))
   async update(
-    @Param("organizationId") organizationId: string,
-    @Param("productId") productId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+    @Param("productId", new ParseUUIDPipe()) productId: string,
     @Body() dto: UpdateProductDto,
   ): Promise<ProductResponseDto> {
     return this.productsService.update(organizationId, productId, dto);
@@ -153,8 +156,8 @@ export class ProductsController {
   @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Insufficient permissions." })
   @ApiResponse({ status: 404, type: ApiErrorResponseDto, description: "Product not found." })
   async delete(
-    @Param("organizationId") organizationId: string,
-    @Param("productId") productId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+    @Param("productId", new ParseUUIDPipe()) productId: string,
   ): Promise<{ message: string }> {
     await this.productsService.delete(organizationId, productId);
     return { message: "Product deleted successfully" };

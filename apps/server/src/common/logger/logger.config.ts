@@ -5,7 +5,8 @@ import type { ConfigService } from "@nestjs/config";
 import type { Params } from "nestjs-pino";
 import type { LevelWithSilent } from "pino";
 
-import { REQUEST_ID_HEADER } from "../middleware/request-id.middleware.js";
+import { REQUEST_ID_HEADER, sanitizeRequestId } from "../middleware/request-id.middleware.js";
+import { requestPathname } from "../utils/shared.util.js";
 
 export function createLoggerConfig(config: ConfigService): Params {
   const nodeEnv = config.get<string>("NODE_ENV") ?? "development";
@@ -30,28 +31,25 @@ export function createLoggerConfig(config: ConfigService): Params {
             },
       autoLogging: {
         ignore: (req) => {
-          const rawPath = (req.url ?? "").split("?")[0]?.replace(/\/+$/, "");
-          const pathname = rawPath && rawPath.length > 0 ? rawPath : "/";
+          const pathname = requestPathname(req.url).replace(/\/+$/, "") || "/";
           return (
             pathname === "/health" || pathname === "/health/live" || pathname === "/health/ready"
           );
         },
       },
       genReqId: (req, res) => {
-        const rawHeader = req.headers[REQUEST_ID_HEADER];
-        const incomingId =
-          typeof rawHeader === "string" && rawHeader.trim() !== "" ? rawHeader.trim() : undefined;
-        const id = incomingId ?? randomUUID();
+        const id = sanitizeRequestId(req.headers[REQUEST_ID_HEADER]) ?? randomUUID();
         req.headers[REQUEST_ID_HEADER] = id;
         res.setHeader(REQUEST_ID_HEADER, id);
         return id;
       },
       serializers: {
-        req: (req: IncomingMessage & { id?: unknown; query?: unknown }) => ({
+        // Never log query strings: reset/verify/invite tokens travel as
+        // `?token=` and would land in access logs. Pathname only.
+        req: (req: IncomingMessage & { id?: unknown }) => ({
           id: req.id,
           method: req.method,
-          url: req.url,
-          query: req.query,
+          url: requestPathname(req.url),
         }),
         res: (res: ServerResponse) => ({
           statusCode: res.statusCode,
@@ -62,6 +60,8 @@ export function createLoggerConfig(config: ConfigService): Params {
           "req.headers.authorization",
           "req.headers.cookie",
           "req.body.password",
+          "req.body.currentPassword",
+          "req.body.newPassword",
           "req.body.refreshToken",
           'res.headers["set-cookie"]',
         ],
@@ -74,11 +74,11 @@ export function createLoggerConfig(config: ConfigService): Params {
       },
       customSuccessMessage: (req, res, responseTime) => {
         const id = typeof req.id === "string" ? ` [reqId=${req.id}]` : "";
-        return `${req.method ?? "UNKNOWN"} ${req.url ?? "/"} ${String(res.statusCode)} - ${String(Math.round(responseTime))}ms${id}`;
+        return `${req.method ?? "UNKNOWN"} ${requestPathname(req.url)} ${String(res.statusCode)} - ${String(Math.round(responseTime))}ms${id}`;
       },
       customErrorMessage: (req, res, err) => {
         const id = typeof req.id === "string" ? ` [reqId=${req.id}]` : "";
-        return `${req.method ?? "UNKNOWN"} ${req.url ?? "/"} ${String(res.statusCode)} - ${err.message}${id}`;
+        return `${req.method ?? "UNKNOWN"} ${requestPathname(req.url)} ${String(res.statusCode)} - ${err.message}${id}`;
       },
     },
   };

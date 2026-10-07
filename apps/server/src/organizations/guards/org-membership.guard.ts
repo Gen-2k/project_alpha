@@ -1,8 +1,9 @@
 import type { CanActivate, ExecutionContext } from "@nestjs/common";
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { OrganizationRole } from "@repo/validation/organizations";
 
+import { isUuid } from "../../common/utils/shared.util.js";
 import { OrganizationsService } from "../organizations.service.js";
 import type { OrgAuthenticatedRequest } from "../organizations.types.js";
 import { ROLE_HIERARCHY } from "../organizations.types.js";
@@ -20,8 +21,22 @@ export class OrgMembershipGuard implements CanActivate {
     const rawOrgId = req.params.id ?? req.params.organizationId;
     const orgId = typeof rawOrgId === "string" ? rawOrgId : undefined;
 
+    const requiredRoles = this.reflector.getAllAndOverride<OrganizationRole[] | undefined>(
+      ORG_ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
     if (!orgId) {
+      // Fail closed when a role is required but no org context exists;
+      // otherwise there is nothing membership-scoped to check.
+      if (requiredRoles && requiredRoles.length > 0) {
+        throw new ForbiddenException("Organization context is required");
+      }
       return true;
+    }
+
+    if (!isUuid(orgId)) {
+      throw new BadRequestException("Invalid organization identifier");
     }
 
     if (!req.user.sub) {
@@ -32,11 +47,6 @@ export class OrgMembershipGuard implements CanActivate {
     if (!membership) {
       throw new ForbiddenException("You do not have access to this organization");
     }
-
-    const requiredRoles = this.reflector.getAllAndOverride<OrganizationRole[] | undefined>(
-      ORG_ROLES_KEY,
-      [context.getHandler(), context.getClass()],
-    );
 
     if (requiredRoles && requiredRoles.length > 0) {
       const userLevel = ROLE_HIERARCHY[membership.role];

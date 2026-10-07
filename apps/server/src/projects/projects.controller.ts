@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -21,7 +22,11 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import { createProjectSchema, updateProjectSchema } from "@repo/validation/projects";
+import {
+  createProjectSchema,
+  listProjectsQuerySchema,
+  updateProjectSchema,
+} from "@repo/validation/projects";
 
 import { ApiErrorResponseDto } from "../common/dto/error-response.dto.js";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe.js";
@@ -61,7 +66,7 @@ export class ProjectsController {
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Project slug collision." })
   @UsePipes(new ZodValidationPipe(createProjectSchema))
   async create(
-    @Param("organizationId") organizationId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
     @Body() dto: CreateProjectDto,
   ): Promise<ProjectResponseDto> {
     return this.projectsService.create(organizationId, dto);
@@ -85,8 +90,8 @@ export class ProjectsController {
     description: "Not an organization member.",
   })
   async list(
-    @Param("organizationId") organizationId: string,
-    @Query() query: ListProjectsQueryDto,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+    @Query(new ZodValidationPipe(listProjectsQuerySchema)) query: ListProjectsQueryDto,
   ): Promise<ProjectResponseDto[]> {
     return this.projectsService.listForOrganization(organizationId, query);
   }
@@ -111,8 +116,8 @@ export class ProjectsController {
   })
   @ApiResponse({ status: 404, type: ApiErrorResponseDto, description: "Project not found." })
   async getById(
-    @Param("organizationId") organizationId: string,
-    @Param("projectId") projectId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+    @Param("projectId", new ParseUUIDPipe()) projectId: string,
   ): Promise<ProjectResponseDto> {
     return this.projectsService.findById(organizationId, projectId);
   }
@@ -138,8 +143,8 @@ export class ProjectsController {
   @ApiResponse({ status: 409, type: ApiErrorResponseDto, description: "Slug collision." })
   @UsePipes(new ZodValidationPipe(updateProjectSchema))
   async update(
-    @Param("organizationId") organizationId: string,
-    @Param("projectId") projectId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+    @Param("projectId", new ParseUUIDPipe()) projectId: string,
     @Body() dto: UpdateProjectDto,
   ): Promise<ProjectResponseDto> {
     return this.projectsService.update(organizationId, projectId, dto);
@@ -159,8 +164,8 @@ export class ProjectsController {
   @ApiResponse({ status: 403, type: ApiErrorResponseDto, description: "Insufficient permissions." })
   @ApiResponse({ status: 404, type: ApiErrorResponseDto, description: "Project not found." })
   async delete(
-    @Param("organizationId") organizationId: string,
-    @Param("projectId") projectId: string,
+    @Param("organizationId", new ParseUUIDPipe()) organizationId: string,
+    @Param("projectId", new ParseUUIDPipe()) projectId: string,
   ): Promise<{ message: string }> {
     await this.projectsService.delete(organizationId, projectId);
     return { message: "Project deleted successfully" };
