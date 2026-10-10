@@ -22,7 +22,7 @@ jobs:
           # (`turbo run check --filter=[HEAD^1...HEAD]` on PRs).
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.22.0
 
