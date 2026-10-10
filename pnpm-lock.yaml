@@ -88,8 +88,8 @@ catalogs:
       specifier: ^1.4.7
       version: 1.4.7
     dotenv:
-      specifier: ^18.0.0
-      version: 18.0.3
+      specifier: ^18.0.6
+      version: 18.0.6
     drizzle-kit:
       specifier: ^0.31.0
       version: 0.31.11
@@ -346,7 +346,7 @@ importers:
         version: 24.0.0
       dotenv:
         specifier: 'catalog:'
-        version: 18.0.3
+        version: 18.0.6
       drizzle-kit:
         specifier: 'catalog:'
         version: 0.31.11
@@ -2175,6 +2175,11 @@ packages:
 
   dotenv@18.0.3:
     resolution: {integrity: sha512-/8CJTyL817qPnfbQrJgOEcrU3fDrJkRIoXBE566wHuvIXKOCHUZhPqGPbCPi9SogjdGnreF0TlvnTgK6J/8zpA==}
+    engines: {node: '>=12'}
+    hasBin: true
+
+  dotenv@18.0.6:
+    resolution: {integrity: sha512-ZMVmohV6CvAJtj++pZNyggluUt6hbRdQAxc2+Z635RL6/AG/ruXv5lHnybUFoxMPL/yrTL/tsF4paZu2l7RA6Q==}
     engines: {node: '>=12'}
     hasBin: true
 
@@ -5726,6 +5731,8 @@ snapshots:
   dotenv@17.4.2: {}
 
   dotenv@18.0.3: {}
+
+  dotenv@18.0.6: {}
 
   drizzle-kit@0.31.11:
     dependencies:
