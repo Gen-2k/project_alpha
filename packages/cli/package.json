@@ -30,7 +30,6 @@
     "@babel/parser": "catalog:",
     "@babel/traverse": "catalog:",
     "@babel/types": "catalog:",
-    "@clack/prompts": "catalog:",
     "@formatjs/icu-messageformat-parser": "catalog:",
     "commander": "catalog:",
     "picocolors": "catalog:"

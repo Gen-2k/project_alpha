@@ -48,18 +48,15 @@
   "devDependencies": {
     "@nestjs/cli": "catalog:",
     "@nestjs/schematics": "catalog:",
-    "@nestjs/testing": "catalog:",
     "@repo/typescript-config": "workspace:*",
     "@types/cookie-parser": "catalog:",
     "@types/express": "catalog:",
     "@types/ms": "catalog:",
     "@types/node": "catalog:",
     "@types/nodemailer": "catalog:",
-    "@types/supertest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@vitest/ui": "catalog:",
     "pino-pretty": "catalog:",
-    "supertest": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
