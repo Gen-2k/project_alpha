@@ -12,6 +12,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Least privilege: checkout + cache only need read access.
     permissions:
       contents: read
@@ -45,6 +46,9 @@ jobs:
       # `test` / `build` are pipeline contracts: they no-op until the first
       # app/package defines those scripts, then run dependency-aware + cached.
       - run: pnpm test
+      # Coverage thresholds live in apps/server/vitest.config.ts (100 stmts,
+      # 90 branches): plain `test` skips coverage, so this step enforces them.
+      - run: pnpm --filter server exec vitest run --coverage
       - run: pnpm build
       # Hard gates beyond `pnpm check`: secrets, known CVEs, duplication budget.
       # - audit stays at `critical` (not `high`): the 2 remaining highs are
@@ -55,15 +59,28 @@ jobs:
       # - jscpd scope is server+validation+database (verified 4.03% vs 5%
       #   threshold); packages/cli excluded until scanner/rewriter clones
       #   are cleaned, then expand scope.
-      - run: npx -y jscpd@4.0.5 --config jscpd.json apps/server/src packages/validation/src packages/database/src --silent
+      - run: pnpm exec jscpd --config jscpd.json apps/server/src packages/validation/src packages/database/src --silent
       # - knip is blocking: zero findings (dead deps pruned, phantom
       #   `@formatjs/icu-messageformat-parser` import declared in
       #   packages/cli, `ignoreExportsUsedInFile` covers same-file DTO
       #   contracts, string-referenced `pino-pretty` ignored in knip.json).
-      - run: npx -y knip@5 --config knip.json
+      - run: pnpm exec knip --config knip.json
+
+  # Proves the production image still builds (no registry push yet — add a
+  # push step here when GHCR/Docker Hub is chosen). Catches Dockerfile rot,
+  # pnpm deploy/layout drift, and APP_VERSION plumbing breakage.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -f apps/server/Dockerfile --build-arg APP_VERSION=${{ github.sha }} .
 
   secrets:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:

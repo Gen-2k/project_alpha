@@ -32,7 +32,9 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
   Emitters use a separate `tsconfig.build.json` (clean `rootDir`); no
   TypeScript project references (Turbo orders builds).
 - Deps: local code via `workspace:*`, shared versions via `catalog:` (edit
-  the catalog, never inline a version another package shares). Backend
+  the catalog, never inline a version another package shares). CI scanners
+  (`jscpd`, `knip`) are exact-pinned in root devDependencies instead: they are
+  single-use at root, lockfile-pinned, and dependabot-managed. Backend
   packages need `engines: node>=24` + `@types/node` (the Node lint rules
   and `types: ["node"]` depend on them).
 - Tests: colocated `*.spec.ts` under full strictness (fake Db boundaries,
@@ -113,7 +115,9 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
   future paths, create, verify, and delete in the same session.
 - CI (`.github/workflows/ci.yml`) runs `check` plus hard gates (CODEOWNERS review,
   gitleaks secrets, `pnpm audit --audit-level=critical`, jscpd duplication budget
-  per `jscpd.json`, knip dead-code gate per `knip.json` (blocking, zero findings);
+  per `jscpd.json`, knip dead-code gate per `knip.json` (blocking, zero findings),
+  server coverage thresholds per `apps/server/vitest.config.ts`, `docker build`
+  proof of the production image); keep `check` and CI in sync when adding gates.
   keep `check` and CI in sync when adding gates. PRs use
   `.github/pull_request_template.md` (intent + blast radius + risk tier in the PR
   body, <500 LOC for AI-assisted PRs, walkthrough required).

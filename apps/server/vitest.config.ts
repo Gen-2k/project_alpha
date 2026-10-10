@@ -16,11 +16,14 @@ export default defineConfig({
       provider: "v8",
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.spec.ts", "src/**/*.module.ts", "src/main.ts"],
+      // Verified 2026-10-10: 100/100/94.8/100. Branches stay at 90 because
+      // decorator metadata, live-DNS and runtime-impossible fallbacks cannot
+      // be meaningfully covered; everything else must not regress.
       thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 80,
-        statements: 80,
+        lines: 100,
+        functions: 100,
+        branches: 90,
+        statements: 100,
       },
     },
   },
