@@ -12,7 +12,8 @@
       "env": ["CI", "NODE_ENV"]
     },
     "test:cov": {
-      "env": ["CI", "NODE_ENV"]
+      "env": ["CI", "NODE_ENV"],
+      "outputs": ["coverage/**"]
     },
     "test:watch": {
       "cache": false,

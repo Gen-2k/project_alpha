@@ -7,20 +7,155 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel intermediate runs on PRs, but allow pushes on main to complete.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
 
 jobs:
-  check:
+  quality:
+    name: Quality (Format, Lint, Duplication, Dead Code)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Least privilege: checkout + cache only need read access.
-    permissions:
-      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Turbo Cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-quality-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-quality-${{ runner.os }}-
+
+      - name: Code Formatting Check (Prettier)
+        run: pnpm format:check
+
+      - name: Workspace Lint (ESLint via Turbo)
+        run: pnpm lint
+
+      - name: Root Configs Lint
+        run: pnpm lint:root
+
+      - name: Code Duplication Budget (JSCPD <= 5%)
+        run: pnpm jscpd
+
+      - name: Dead Code & Unused Exports (Knip)
+        run: pnpm knip
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Turbo Cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-typecheck-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-typecheck-${{ runner.os }}-
+
+      - name: TypeScript Compilation Check
+        run: pnpm typecheck
+
+  test:
+    name: Tests & Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Turbo Cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-test-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-test-${{ runner.os }}-
+
+      - name: Peer Dependencies Check
+        run: pnpm peers check
+
+      - name: Test Suite with Coverage Enforcement
+        run: pnpm test:cov
+
+  build:
+    name: Monorepo Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Turbo Cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-build-${{ runner.os }}-
+
+      - name: Compile Packages and Apps
+        run: pnpm build
+
+  security:
+    name: Security & Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
-          # Full history: enables Turbo affected filtering later
-          # (`turbo run check --filter=[HEAD^1...HEAD]` on PRs).
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
@@ -29,65 +164,40 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          # Single source of truth: .nvmrc (matches engines + local dev).
           node-version-file: .nvmrc
           cache: pnpm
 
-      # Reproducible install: fails if pnpm-lock.yaml is stale.
-      - run: pnpm install --frozen-lockfile
-      # peers is a pnpm built-in subcommand (not an npm binary): knip's script
-      # parser flags it as unlisted, so knip.json `ignoreBinaries` covers it.
-      - run: pnpm peers check
-      - run: pnpm format:check
-      - run: pnpm lint
-      # Root tooling configs (single flat ESLint config lives at root).
-      - run: pnpm lint:root
-      - run: pnpm typecheck
-      # `test` / `build` are pipeline contracts: they no-op until the first
-      # app/package defines those scripts, then run dependency-aware + cached.
-      - run: pnpm test
-      # Coverage thresholds live in apps/server/vitest.config.ts (100 stmts,
-      # 90 branches): plain `test` skips coverage, so this step enforces them.
-      - run: pnpm --filter server exec vitest run --coverage
-      - run: pnpm build
-      # Hard gates beyond `pnpm check`: secrets, known CVEs, duplication budget.
-      # - audit stays at `critical` (not `high`): the 2 remaining highs are
-      #   dev-only transitives with no published fix (braces via
-      #   eslint-plugin-check-file, source-map-js via vitest) — neither ships
-      #   in the server runtime. Re-tighten after upstream publishes fixes.
-      - run: pnpm audit --audit-level=critical
-      # - jscpd scope is server+validation+database (verified 4.03% vs 5%
-      #   threshold); packages/cli excluded until scanner/rewriter clones
-      #   are cleaned, then expand scope.
-      - run: pnpm exec jscpd --config jscpd.json apps/server/src packages/validation/src packages/database/src --silent
-      # - knip is blocking: zero findings (dead deps pruned, phantom
-      #   `@formatjs/icu-messageformat-parser` import declared in
-      #   packages/cli, `ignoreExportsUsedInFile` covers same-file DTO
-      #   contracts, string-referenced `pino-pretty` ignored in knip.json).
-      - run: pnpm exec knip --config knip.json
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
 
-  # Proves the production image still builds (no registry push yet — add a
-  # push step here when GHCR/Docker Hub is chosen). Catches Dockerfile rot,
-  # pnpm deploy/layout drift, and APP_VERSION plumbing breakage.
-  image:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-      - run: docker build -f apps/server/Dockerfile --build-arg APP_VERSION=${{ github.sha }} .
+      - name: Dependency Vulnerability Audit (Critical CVEs)
+        run: pnpm audit --audit-level=critical
 
-  secrets:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      # v2+ requires an explicit token to scan PRs (fails in ~5s without it).
-      - uses: gitleaks/gitleaks-action@v3
+      - name: Secret Leak Detection (Gitleaks)
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Docker Image Build Proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build Server Image (Multi-Stage Proof)
+        run: docker build -f apps/server/Dockerfile --build-arg APP_VERSION=${{ github.sha }} .
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [quality, typecheck, test, build, security, docker]
+    if: always()
+    steps:
+      - name: Evaluate Pipeline Status
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "CI pipeline failed. One or more upstream jobs failed or were cancelled."
+            exit 1
+          fi
+          echo "All CI pipeline jobs passed successfully."
