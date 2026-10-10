@@ -71,6 +71,6 @@ jobs:
         with:
           fetch-depth: 0
       # v2+ requires an explicit token to scan PRs (fails in ~5s without it).
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
