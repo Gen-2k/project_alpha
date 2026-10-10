@@ -16,6 +16,7 @@ const mockProduct = {
 
 function createMockDb(options?: {
   selectRows?: unknown[];
+  selectRowsQueue?: unknown[][];
   insertRows?: unknown[];
   insertError?: Error;
   insertResponses?: { rows?: unknown[]; error?: Error }[];
@@ -26,11 +27,15 @@ function createMockDb(options?: {
   const insertedItems: unknown[] = [];
   const updatedItems: unknown[] = [];
   let insertCallCount = 0;
+  const selectQueue = options?.selectRowsQueue ? [...options.selectRowsQueue] : undefined;
   const db = {
     select: vi.fn(() => ({
       from: () => ({
         where: () => {
-          const selectResult = options?.selectRows ?? [mockProduct];
+          const selectResult =
+            selectQueue && selectQueue.length > 0
+              ? (selectQueue.shift() ?? [])
+              : (options?.selectRows ?? [mockProduct]);
           return Object.assign(Promise.resolve(selectResult), {
             limit: () => Promise.resolve(selectResult),
             orderBy: () => Promise.resolve(selectResult),
@@ -120,6 +125,20 @@ describe("ProductsService", () => {
       expect(result).toEqual(retriedProduct);
       expect(insertedItems).toHaveLength(2);
       expect((insertedItems[1] as { slug: string }).slug).toMatch(/^ride-sharing-[0-9a-f]{4}$/);
+    });
+
+    it("should return the concurrently created row instead of fragmenting on unique race", async () => {
+      const uniqueError = Object.assign(new Error("duplicate key"), { code: "23505" });
+      const racedProduct = { ...mockProduct, slug: "ride-sharing" };
+      const { db, insertedItems } = createMockDb({
+        selectRowsQueue: [[], [racedProduct]],
+        insertResponses: [{ error: uniqueError }],
+      });
+      const service = new ProductsService(db);
+
+      const result = await service.findOrCreateByName("org-1", "Ride Sharing");
+      expect(result).toEqual(racedProduct);
+      expect(insertedItems).toHaveLength(1);
     });
 
     it("should throw error if retried insert after slug collision returns no row", async () => {
@@ -268,6 +287,22 @@ describe("ProductsService", () => {
 
       expect(result.name).toBe("Updated Name");
       expect((updatedItems[0] as { name: string }).name).toBe("Updated Name");
+    });
+
+    it("should persist optional description updates", async () => {
+      const updatedProduct = { ...mockProduct, description: "New description" };
+      const { db, updatedItems } = createMockDb({
+        selectRows: [mockProduct],
+        updateRows: [updatedProduct],
+      });
+      const service = new ProductsService(db);
+
+      const result = await service.update("org-1", mockProduct.id, {
+        description: "New description",
+      });
+
+      expect(result.description).toBe("New description");
+      expect((updatedItems[0] as { description: string }).description).toBe("New description");
     });
 
     it("should throw NotFoundException if product to update does not exist", async () => {

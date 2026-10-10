@@ -265,6 +265,24 @@ describe("OrganizationsService", () => {
     });
   });
 
+  describe("findByIdForMember", () => {
+    it("should return the organization when a membership row exists", async () => {
+      const { db } = createMockDb({ selectRows: [mockOrg] });
+      const service = new OrganizationsService(db, usersService);
+
+      const result = await service.findByIdForMember("org-1", "user-1");
+      expect(result).toEqual(mockOrg);
+    });
+
+    it("should return undefined for non-members so existence stays hidden", async () => {
+      const { db } = createMockDb({ selectRows: [] });
+      const service = new OrganizationsService(db, usersService);
+
+      const result = await service.findByIdForMember("org-1", "intruder");
+      expect(result).toBeUndefined();
+    });
+  });
+
   describe("getMembership", () => {
     it("should return membership when present", async () => {
       const { db } = createMockDb({ selectRows: [mockMember] });
@@ -382,6 +400,25 @@ describe("OrganizationsService", () => {
         service.addMember("org-1", { email: "ada@example.com", role: "developer" }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it("should map a concurrent duplicate insert to ConflictException (check-then-insert race)", async () => {
+      const uniqueError = Object.assign(new Error("duplicate key"), { code: "23505" });
+      const { db } = createMockDb({ selectRows: [], insertError: uniqueError });
+      const service = new OrganizationsService(db, usersService);
+
+      await expect(
+        service.addMember("org-1", { email: "ada@example.com", role: "developer" }),
+      ).rejects.toThrow("User is already a member of this organization");
+    });
+
+    it("should rethrow non-unique insert errors untouched", async () => {
+      const { db } = createMockDb({ selectRows: [], insertError: new Error("db down") });
+      const service = new OrganizationsService(db, usersService);
+
+      await expect(
+        service.addMember("org-1", { email: "ada@example.com", role: "developer" }),
+      ).rejects.toThrow("db down");
+    });
     it("should allow PM to add member with lower role", async () => {
       const { db } = createMockDb({
         selectRows: [],
@@ -492,6 +529,23 @@ describe("OrganizationsService", () => {
       const result = await service.updateMemberRole("org-1", "member-1", "admin");
       expect(result.role).toBe("admin");
       expect(transactionSpy).toHaveBeenCalled();
+    });
+
+    it("should return an undefined user when the member account vanished", async () => {
+      const devMember = { ...mockMember, role: "developer" as const };
+      const updatedMember = { ...mockMember, role: "admin" as const };
+      const ghostUsers = createMockUsersService({
+        findById: () => Promise.resolve(undefined),
+      });
+      const { db } = createMockDb({
+        selectRows: [devMember],
+        updateRows: [updatedMember],
+      });
+      const service = new OrganizationsService(db, ghostUsers);
+
+      const result = await service.updateMemberRole("org-1", "member-1", "admin");
+      expect(result.role).toBe("admin");
+      expect(result.user).toBeUndefined();
     });
 
     it("should throw ForbiddenException if PM attempts to promote member to equal or higher role", async () => {
@@ -842,6 +896,24 @@ describe("OrganizationsService", () => {
         NotFoundException,
       );
     });
+
+    it("should tolerate a departed inviter with a generic display name", async () => {
+      const details = {
+        organizationId: "org-1",
+        organizationName: "Acme Corp",
+        email: "invitee@example.com",
+        role: "developer" as const,
+        inviterName: null,
+        inviterEmail: null,
+        expiresAt: new Date(Date.now() + 86400000),
+      };
+      const { db } = createMockDb({ selectRows: [details] });
+      const service = new OrganizationsService(db, usersService);
+
+      const result = await service.getInvitationByToken("valid-token");
+      expect(result.inviterName).toBeNull();
+      expect(result.inviterEmail).toBe("An administrator");
+    });
   });
 
   describe("acceptInvitation", () => {
@@ -1014,6 +1086,40 @@ describe("OrganizationsService", () => {
       );
       expect(createSpy.mock.calls[0]?.[0]?.emailVerifiedAt).toBeInstanceOf(Date);
       expect(insertedItems).toHaveLength(1);
+    });
+
+    it("should store a null name when the new user provides password only", async () => {
+      const { db } = createMockDb({
+        selectRowsQueue: [
+          [mockInvitation],
+          [], // not already member
+        ],
+      });
+      const createSpy = vi.fn((input: NewUser) =>
+        Promise.resolve({
+          ...mockSafeUser,
+          id: "user-brand-new",
+          email: input.email,
+          name: input.name ?? null,
+        }),
+      );
+      const localUsersService = createMockUsersService({
+        findByEmailWithHash: () => Promise.resolve(undefined),
+        create: createSpy,
+      });
+      const service = new OrganizationsService(db, localUsersService);
+
+      await service.acceptInvitation("valid-token", {
+        password: "Password123!",
+      });
+
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: mockInvitation.email,
+          name: null,
+        }),
+        db,
+      );
     });
   });
 });

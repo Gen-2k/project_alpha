@@ -53,6 +53,7 @@ describe("OrganizationsController", () => {
     create: ReturnType<typeof vi.fn>;
     listForUser: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
+    findByIdForMember: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
     listMembers: ReturnType<typeof vi.fn>;
@@ -76,6 +77,7 @@ describe("OrganizationsController", () => {
       create: vi.fn(() => Promise.resolve(mockOrg)),
       listForUser: vi.fn(() => Promise.resolve([{ organization: mockOrg, role: "owner" }])),
       findById: vi.fn(() => Promise.resolve(mockOrg)),
+      findByIdForMember: vi.fn(() => Promise.resolve(mockOrg)),
       update: vi.fn(() => Promise.resolve(mockOrg)),
       delete: vi.fn(() => Promise.resolve()),
       listMembers: vi.fn(() => Promise.resolve([mockMember])),
@@ -114,15 +116,24 @@ describe("OrganizationsController", () => {
   });
 
   describe("getById", () => {
-    it("should return organization details", async () => {
-      const result = await controller.getById("org-1");
+    it("should return organization details via member-scoped read", async () => {
+      const result = await controller.getById("org-1", mockReq);
       expect(result).toEqual(mockOrg);
-      expect(service.findById).toHaveBeenCalledWith("org-1");
+      expect(service.findByIdForMember).toHaveBeenCalledWith("org-1", "user-1");
     });
 
     it("should throw ForbiddenException if organization not found", async () => {
-      service.findById.mockResolvedValueOnce(undefined);
-      await expect(controller.getById("org-unknown")).rejects.toThrow(ForbiddenException);
+      service.findByIdForMember.mockResolvedValueOnce(undefined);
+      await expect(controller.getById("org-unknown", mockReq)).rejects.toThrow(ForbiddenException);
+    });
+
+    it("should hide existence when the request carries no authenticated user", async () => {
+      service.findByIdForMember.mockResolvedValueOnce(undefined);
+      const anonymousReq = { params: { id: "org-1" } };
+      await expect(controller.getById("org-1", anonymousReq as never)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(service.findByIdForMember).toHaveBeenCalledWith("org-1", "");
     });
   });
 
@@ -254,6 +265,13 @@ describe("OrganizationsController", () => {
       const result = await controller.createInvitation("org-1", dto, mockReq);
       expect(result).toEqual(mockInvitation);
       expect(service.createInvitation).toHaveBeenCalledWith("org-1", "user-1", "owner", dto);
+    });
+
+    it("should fall back to viewer role when guard membership is absent", async () => {
+      const dto = { email: "invitee@example.com", role: "developer" as const };
+      const reqWithoutMembership = { user: { sub: "user-1", email: "ada@example.com" } };
+      await controller.createInvitation("org-1", dto, reqWithoutMembership as never);
+      expect(service.createInvitation).toHaveBeenCalledWith("org-1", "user-1", "viewer", dto);
     });
   });
 

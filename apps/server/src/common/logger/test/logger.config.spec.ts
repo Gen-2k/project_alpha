@@ -174,6 +174,24 @@ describe("createLoggerConfig", () => {
     expect(msg).toBe("POST /api/v1/auth/login 200 - 46ms [reqId=trace-xyz]");
   });
 
+  it("should omit method and request id when absent", () => {
+    const config = mockConfig({ NODE_ENV: "development" });
+    const params = createLoggerConfig(config);
+    const opts = params.pinoHttp as Record<string, unknown>;
+    const customSuccessMessage = opts.customSuccessMessage as (
+      req: IncomingMessage & { id?: string },
+      res: ServerResponse,
+      time: number,
+    ) => string;
+
+    const msg = customSuccessMessage(
+      { url: "/health/live" } as IncomingMessage & { id?: string },
+      { statusCode: 200 } as ServerResponse,
+      10.2,
+    );
+    expect(msg).toBe("UNKNOWN /health/live 200 - 10ms");
+  });
+
   it("formats custom error messages with error message and request ID", () => {
     const config = mockConfig({ NODE_ENV: "development" });
     const params = createLoggerConfig(config);
@@ -201,5 +219,32 @@ describe("createLoggerConfig", () => {
       new Error("Internal error"),
     );
     expect(msgFallback).toBe("UNKNOWN / 500 - Internal error");
+  });
+
+  it("should fall back to development defaults when env is unset", () => {
+    const config = mockConfig({});
+    const params = createLoggerConfig(config);
+    const opts = params.pinoHttp as Record<string, unknown>;
+
+    expect(opts.level).toBe("info");
+    expect(opts.transport).toMatchObject({ target: "pino-pretty" });
+  });
+
+  it("should omit the request-id suffix when req.id is not a string", () => {
+    const config = mockConfig({ NODE_ENV: "development" });
+    const params = createLoggerConfig(config);
+    const opts = params.pinoHttp as Record<string, unknown>;
+    const customSuccessMessage = opts.customSuccessMessage as (
+      req: IncomingMessage & { id?: string },
+      res: ServerResponse,
+      time: number,
+    ) => string;
+
+    const msg = customSuccessMessage(
+      { method: "GET", url: "/health/live" } as IncomingMessage & { id?: string },
+      { statusCode: 200 } as ServerResponse,
+      10.2,
+    );
+    expect(msg).toBe("GET /health/live 200 - 10ms");
   });
 });

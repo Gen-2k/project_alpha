@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import nodemailer from "nodemailer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,6 +53,73 @@ describe("MailService", () => {
         role: "developer",
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("should apply documented defaults when optional config is absent", async () => {
+    const mailService = new MailService(new ConfigService({}));
+
+    await expect(
+      mailService.sendPasswordResetEmail("ada@example.com", "dummy-token"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("should stay in console mode when only some SMTP vars are set", async () => {
+    const mailService = new MailService(new ConfigService({ SMTP_HOST: "smtp.example.com" }));
+
+    await expect(
+      mailService.sendEmailVerificationEmail("ada@example.com", "dummy-token"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("should default SMTP port to 465 with secure transport when port is omitted", () => {
+    const createTransportSpy = vi.spyOn(nodemailer, "createTransport").mockReturnValue({
+      sendMail: vi.fn(),
+    } as unknown as ReturnType<typeof nodemailer.createTransport>);
+
+    configService = new ConfigService({
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "smtp_user",
+      SMTP_PASS: "smtp_pass",
+    });
+
+    new MailService(configService);
+    expect(createTransportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        port: 465,
+        secure: true,
+      }),
+    );
+  });
+
+  it("should never log raw secret-bearing URLs in console mode", async () => {
+    const logged: string[] = [];
+    vi.spyOn(Logger.prototype, "log").mockImplementation((message?: unknown) => {
+      if (typeof message === "string") logged.push(message);
+    });
+
+    configService = new ConfigService({
+      FRONTEND_URL: "http://localhost:3000",
+      EMAIL_FROM: "Project Alpha <no-reply@projectalpha.local>",
+    });
+
+    const mailService = new MailService(configService);
+    await mailService.sendPasswordResetEmail("ada@example.com", "super-secret-reset-token");
+    await mailService.sendEmailVerificationEmail("ada@example.com", "super-secret-verify-token");
+
+    const output = logged.join("\n");
+    expect(output).not.toContain("super-secret-reset-token");
+    expect(output).not.toContain("super-secret-verify-token");
+    expect(output).toContain("sha256:");
+  });
+
+  it("should throw at construction in production without SMTP credentials", () => {
+    configService = new ConfigService({
+      NODE_ENV: "production",
+      FRONTEND_URL: "http://localhost:3000",
+      EMAIL_FROM: "Project Alpha <no-reply@projectalpha.local>",
+    });
+
+    expect(() => new MailService(configService)).toThrow(/SMTP_HOST/);
   });
 
   it("should initialize SMTP transporter and send emails via nodemailer when configured", async () => {

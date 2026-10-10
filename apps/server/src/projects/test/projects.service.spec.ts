@@ -242,6 +242,17 @@ describe("ProjectsService", () => {
       const result = await service.listForOrganization("org-1", { productId: "prod-1" });
       expect(result).toEqual([mockProject]);
     });
+
+    it("should return null product for projects without a linked product", async () => {
+      const rowWithoutProduct = { project: mockProjectRow, product: null };
+      const { db } = createMockDb({ selectRows: [rowWithoutProduct] });
+      const mockProductsService = createMockProductsService();
+      const service = new ProjectsService(db, mockProductsService as unknown as ProductsService);
+
+      const result = await service.listForOrganization("org-1");
+      expect(result).toHaveLength(1);
+      expect(result[0]?.product).toBeNull();
+    });
   });
 
   describe("findById", () => {
@@ -261,6 +272,16 @@ describe("ProjectsService", () => {
 
       await expect(service.findById("org-1", "non-existent")).rejects.toThrow(NotFoundException);
     });
+
+    it("should return null product for projects without a linked product", async () => {
+      const rowWithoutProduct = { project: mockProjectRow, product: null };
+      const { db } = createMockDb({ selectRows: [rowWithoutProduct] });
+      const mockProductsService = createMockProductsService();
+      const service = new ProjectsService(db, mockProductsService as unknown as ProductsService);
+
+      const result = await service.findById("org-1", mockProject.id);
+      expect(result.product).toBeNull();
+    });
   });
 
   describe("update", () => {
@@ -279,6 +300,31 @@ describe("ProjectsService", () => {
 
       expect(result.name).toBe("Updated Mobile App");
       expect((updatedItems[0] as { name: string }).name).toBe("Updated Mobile App");
+    });
+
+    it("should persist optional description and language updates", async () => {
+      const updatedProjectRow = {
+        ...mockProjectRow,
+        description: "New description",
+        sourceLanguage: "de-DE",
+        targetLanguages: ["fr-FR"],
+      };
+      const { db, updatedItems } = createMockDb({
+        selectRows: [{ project: updatedProjectRow, product: mockProductSummary }],
+        updateRows: [updatedProjectRow],
+      });
+      const mockProductsService = createMockProductsService();
+      const service = new ProjectsService(db, mockProductsService as unknown as ProductsService);
+
+      const result = await service.update("org-1", mockProject.id, {
+        description: "New description",
+        sourceLanguage: "de-DE",
+        targetLanguages: ["fr-FR"],
+      });
+
+      expect(result.description).toBe("New description");
+      expect((updatedItems[0] as { description: string }).description).toBe("New description");
+      expect((updatedItems[0] as { sourceLanguage: string }).sourceLanguage).toBe("de-DE");
     });
 
     it("should throw NotFoundException if project to update does not exist", async () => {

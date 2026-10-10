@@ -43,6 +43,20 @@ describe("OrgMembershipGuard", () => {
     expect(result).toBe(true);
   });
 
+  it("should throw ForbiddenException when roles are required but no org context exists", async () => {
+    reflector.getAllAndOverride.mockReturnValueOnce(["owner"]);
+    const ctx = createMockContext({ params: {} });
+    await expect(guard.canActivate(ctx)).rejects.toThrow("Organization context is required");
+  });
+
+  it("should throw BadRequestException for a non-UUID organization id", async () => {
+    const ctx = createMockContext({
+      params: { id: "not-a-uuid" },
+      user: { sub: "user-1", email: "ada@example.com" },
+    });
+    await expect(guard.canActivate(ctx)).rejects.toThrow("Invalid organization identifier");
+  });
+
   it("should extract organizationId from req.params.organizationId for nested routes", async () => {
     const membership = {
       id: "mem-1",

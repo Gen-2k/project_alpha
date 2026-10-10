@@ -58,7 +58,14 @@ interface StoredRefreshRow {
 function setup(options?: { emailNormalizationEnabled?: boolean }) {
   const inserted: StoredRefreshRow[] = [];
   const selectRows: StoredRefreshRow[] = [];
-  const calls = { deleted: 0, updated: 0, transactions: 0 };
+  const calls = { deleted: 0, updated: 0, transactions: 0, wherePredicates: [] as unknown[] };
+
+  // Every query must carry a predicate: the fake records each `where` argument
+  // so scoping regressions (a dropped predicate selects/updates the whole
+  // table) fail loudly instead of passing against seeded rows.
+  const recordWhere = (predicate: unknown): void => {
+    calls.wherePredicates.push(predicate);
+  };
 
   const db = {
     transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
@@ -67,7 +74,10 @@ function setup(options?: { emailNormalizationEnabled?: boolean }) {
     }),
     select: vi.fn(() => ({
       from: () => ({
-        where: () => Promise.resolve(selectRows),
+        where: (predicate?: unknown) => {
+          recordWhere(predicate);
+          return Promise.resolve(selectRows);
+        },
       }),
     })),
     insert: vi.fn(() => ({
@@ -78,7 +88,8 @@ function setup(options?: { emailNormalizationEnabled?: boolean }) {
     })),
     update: vi.fn(() => ({
       set: (data: Partial<StoredRefreshRow>) => ({
-        where: () => {
+        where: (predicate?: unknown) => {
+          recordWhere(predicate);
           calls.updated += 1;
           for (const row of selectRows) {
             Object.assign(row, data);
@@ -93,7 +104,8 @@ function setup(options?: { emailNormalizationEnabled?: boolean }) {
       }),
     })),
     delete: vi.fn(() => ({
-      where: () => {
+      where: (predicate?: unknown) => {
+        recordWhere(predicate);
         calls.deleted += 1;
         const rows = [{ id: "deleted-token-id" }];
         const promise = Promise.resolve(rows) as Promise<typeof rows> & {
@@ -143,7 +155,8 @@ function setup(options?: { emailNormalizationEnabled?: boolean }) {
     },
     get: (key: string): unknown => {
       if (key === "NORMALIZE_EMAIL") {
-        return options?.emailNormalizationEnabled ?? false;
+        // undefined when disabled: exercises the service's `?? false` default.
+        return options?.emailNormalizationEnabled ?? undefined;
       }
       return undefined;
     },
@@ -345,6 +358,10 @@ describe("AuthService", () => {
       expect(inserted).toHaveLength(2);
       expect(calls.updated).toBe(1);
       expect(calls.transactions).toBe(1);
+      // Rotation must scope every write with a predicate: an unscoped
+      // update would rotate the whole table instead of one token family.
+      expect(calls.wherePredicates.length).toBeGreaterThan(0);
+      expect(calls.wherePredicates.every((p) => p !== undefined)).toBe(true);
 
       // Immediate double-submit within grace window rejects without revoking the token family
       await expect(service.refresh({ refreshToken: first.refreshToken })).rejects.toThrow(
@@ -728,6 +745,25 @@ describe("AuthService", () => {
         }),
       ).rejects.toThrow("The password reset token is invalid or has expired");
     });
+
+    it("should still succeed when the post-reset notification email fails", async () => {
+      const { service, selectRows, findById, mail } = setup();
+      selectRows.push({
+        id: "reset-token-id",
+        userId: safeUser.id,
+        tokenHash: "any-hash",
+        expiresAt: new Date(Date.now() + 60000),
+      });
+      findById.mockResolvedValueOnce(safeUser);
+      mail.sendPasswordChangedNotification.mockRejectedValueOnce(new Error("SMTP offline"));
+
+      const result = await service.resetPassword({
+        token: "plain-token-string",
+        newPassword: "fresh-new-password-123",
+      });
+
+      expect(result.message).toContain("Your password has been successfully reset");
+    });
   });
 
   describe("updatePassword", () => {
@@ -958,6 +994,30 @@ describe("AuthService", () => {
 
       expect(calls.deleted).toBe(1);
       expect(result).toEqual({ deleted: 1 });
+    });
+  });
+
+  describe("cleanupExpiredPasswordResetTokens", () => {
+    it("should delete expired or used password reset tokens and return count", async () => {
+      const { service, calls } = setup();
+      const result = await service.cleanupExpiredPasswordResetTokens();
+
+      expect(calls.deleted).toBe(1);
+      expect(result).toEqual({ deleted: 1 });
+    });
+  });
+
+  describe("updatePassword user lookup", () => {
+    it("should throw UnauthorizedException when the user no longer exists", async () => {
+      const { service, findByIdWithHash } = setup();
+      findByIdWithHash.mockResolvedValueOnce(undefined);
+
+      await expect(
+        service.updatePassword("ghost-user", {
+          currentPassword: "old-password-123",
+          newPassword: "brand-new-password-456",
+        }),
+      ).rejects.toThrow("User profile not found");
     });
   });
 

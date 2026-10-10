@@ -1,4 +1,5 @@
 import { ServiceUnavailableException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { Db } from "@repo/database/client";
 import { describe, expect, it } from "vitest";
 
@@ -22,6 +23,12 @@ describe("HealthService", () => {
         version: "0.0.0",
       });
       expect(typeof liveness.uptimeSeconds).toBe("number");
+    });
+
+    it("should surface the injected build version", () => {
+      const config = new ConfigService({ APP_VERSION: "1.2.3-build.42" });
+      const liveness = new HealthService(fakeDb(), config).liveness();
+      expect(liveness.version).toBe("1.2.3-build.42");
     });
   });
 

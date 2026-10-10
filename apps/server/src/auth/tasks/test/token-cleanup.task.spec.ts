@@ -10,6 +10,7 @@ describe("TokenCleanupTask", () => {
     cleanupExpiredTokens: ReturnType<typeof vi.fn>;
     cleanupUnverifiedUsers: ReturnType<typeof vi.fn>;
     cleanupExpiredVerificationTokens: ReturnType<typeof vi.fn>;
+    cleanupExpiredPasswordResetTokens: ReturnType<typeof vi.fn>;
   };
   let loggerSpy: ReturnType<typeof vi.spyOn>;
 
@@ -19,6 +20,7 @@ describe("TokenCleanupTask", () => {
       cleanupExpiredTokens: vi.fn(),
       cleanupUnverifiedUsers: vi.fn(),
       cleanupExpiredVerificationTokens: vi.fn(),
+      cleanupExpiredPasswordResetTokens: vi.fn(),
     };
     task = new TokenCleanupTask(authService as unknown as AuthService);
     loggerSpy = vi.spyOn(Logger.prototype, "log").mockReturnValue();
@@ -28,38 +30,64 @@ describe("TokenCleanupTask", () => {
     authService.cleanupExpiredTokens.mockResolvedValueOnce({ deleted: 5 });
     authService.cleanupUnverifiedUsers.mockResolvedValueOnce({ deleted: 3 });
     authService.cleanupExpiredVerificationTokens.mockResolvedValueOnce({ deleted: 2 });
+    authService.cleanupExpiredPasswordResetTokens.mockResolvedValueOnce({ deleted: 1 });
 
     const result = await task.handleCleanup();
 
     expect(authService.cleanupExpiredTokens).toHaveBeenCalledOnce();
     expect(authService.cleanupUnverifiedUsers).toHaveBeenCalledOnce();
     expect(authService.cleanupExpiredVerificationTokens).toHaveBeenCalledOnce();
+    expect(authService.cleanupExpiredPasswordResetTokens).toHaveBeenCalledOnce();
     expect(result).toEqual({
       tokensDeleted: 5,
       unverifiedUsersDeleted: 3,
       verificationTokensDeleted: 2,
+      passwordResetTokensDeleted: 1,
     });
     expect(loggerSpy).toHaveBeenCalledWith("Cleaned up 5 expired or revoked refresh tokens.");
     expect(loggerSpy).toHaveBeenCalledWith("Cleaned up 3 abandoned unverified user accounts.");
     expect(loggerSpy).toHaveBeenCalledWith("Cleaned up 2 expired email verification tokens.");
+    expect(loggerSpy).toHaveBeenCalledWith("Cleaned up 1 expired password reset tokens.");
   });
 
   it("should trigger cleanup without logging when zero items are deleted", async () => {
     authService.cleanupExpiredTokens.mockResolvedValueOnce({ deleted: 0 });
     authService.cleanupUnverifiedUsers.mockResolvedValueOnce({ deleted: 0 });
     authService.cleanupExpiredVerificationTokens.mockResolvedValueOnce({ deleted: 0 });
+    authService.cleanupExpiredPasswordResetTokens.mockResolvedValueOnce({ deleted: 0 });
 
     const result = await task.handleCleanup();
 
     expect(authService.cleanupExpiredTokens).toHaveBeenCalledOnce();
     expect(authService.cleanupUnverifiedUsers).toHaveBeenCalledOnce();
     expect(authService.cleanupExpiredVerificationTokens).toHaveBeenCalledOnce();
+    expect(authService.cleanupExpiredPasswordResetTokens).toHaveBeenCalledOnce();
     expect(result).toEqual({
       tokensDeleted: 0,
       unverifiedUsersDeleted: 0,
       verificationTokensDeleted: 0,
+      passwordResetTokensDeleted: 0,
     });
     expect(loggerSpy).not.toHaveBeenCalled();
+  });
+
+  it("should log only for categories with deletions in mixed runs", async () => {
+    authService.cleanupExpiredTokens.mockResolvedValueOnce({ deleted: 0 });
+    authService.cleanupUnverifiedUsers.mockResolvedValueOnce({ deleted: 4 });
+    authService.cleanupExpiredVerificationTokens.mockResolvedValueOnce({ deleted: 0 });
+    authService.cleanupExpiredPasswordResetTokens.mockResolvedValueOnce({ deleted: 2 });
+
+    const result = await task.handleCleanup();
+
+    expect(result).toEqual({
+      tokensDeleted: 0,
+      unverifiedUsersDeleted: 4,
+      verificationTokensDeleted: 0,
+      passwordResetTokensDeleted: 2,
+    });
+    expect(loggerSpy).toHaveBeenCalledTimes(2);
+    expect(loggerSpy).toHaveBeenCalledWith("Cleaned up 4 abandoned unverified user accounts.");
+    expect(loggerSpy).toHaveBeenCalledWith("Cleaned up 2 expired password reset tokens.");
   });
 
   it("should propagate error when authService.cleanupExpiredTokens fails", async () => {

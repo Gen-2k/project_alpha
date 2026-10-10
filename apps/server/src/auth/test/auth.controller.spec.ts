@@ -31,6 +31,7 @@ describe("AuthController", () => {
   const mockRes = {
     cookie: vi.fn(),
     clearCookie: vi.fn(),
+    setHeader: vi.fn(),
   };
 
   beforeEach(() => {
@@ -81,20 +82,28 @@ describe("AuthController", () => {
     });
     expect(mockRes.cookie).toHaveBeenCalledWith("refreshToken", "r", expect.any(Object));
     expect(res).toMatchObject({ accessToken: "a", refreshToken: "r" });
+    expect(mockRes.setHeader).toHaveBeenCalledWith("Cache-Control", "no-store, no-cache");
+    expect(mockRes.setHeader).toHaveBeenCalledWith("Pragma", "no-cache");
   });
 
-  it("should delegate refresh via cookie and set new cookie", async () => {
+  it("should delegate refresh via cookie, set new cookie, and never expose refresh in JSON", async () => {
     const cookieReq = {
       ...mockReq,
       cookies: { refreshToken: "cookie-token" },
     } as unknown as Request;
-    const res = await controller.refresh(cookieReq, mockRes as unknown as Response);
+    const res = (await controller.refresh(cookieReq, mockRes as unknown as Response)) as Record<
+      string,
+      unknown
+    >;
     expect(authService.refresh).toHaveBeenCalledWith(
       { refreshToken: "cookie-token" },
       { ipAddress: "127.0.0.1", userAgent: "test-agent" },
     );
     expect(mockRes.cookie).toHaveBeenCalledWith("refreshToken", "r2", expect.any(Object));
-    expect(res).toMatchObject({ accessToken: "a2", refreshToken: "r2" });
+    // The 7-day credential travels as HttpOnly cookie only — never in browser JSON.
+    expect(res).toMatchObject({ accessToken: "a2" });
+    expect(res).not.toHaveProperty("refreshToken");
+    expect(mockRes.setHeader).toHaveBeenCalledWith("Cache-Control", "no-store, no-cache");
   });
 
   it("should throw UnauthorizedException if refresh token is missing in cookie and body", async () => {
@@ -104,6 +113,8 @@ describe("AuthController", () => {
   });
 
   it("should delegate refresh via request body when cookie is missing and set new cookie", async () => {
+    // CLI / non-browser flow: the client has no cookie jar, so the full pair
+    // is returned in JSON for password-grade storage.
     const bodyReq = {
       ...mockReq,
       cookies: {},

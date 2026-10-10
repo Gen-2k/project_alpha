@@ -175,6 +175,17 @@ describe("UsersService", () => {
       const service = new UsersService(fakeDb({ selectQueue: [owned, []] }));
       await expect(service.delete(safeRow.id)).rejects.toThrow("sole owner of an organization");
     });
+
+    it("should proceed with delete when a co-owner exists", async () => {
+      let deleted = false;
+      const owned = [{ id: "11111111-1111-4111-8111-111111111111" }];
+      const coOwners = [{ organizationId: "11111111-1111-4111-8111-111111111111" }];
+      const service = new UsersService(
+        fakeDb({ selectQueue: [owned, coOwners], deleteSpy: () => (deleted = true) }),
+      );
+      await service.delete(safeRow.id);
+      expect(deleted).toBe(true);
+    });
   });
 
   describe("create", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { getUuidv7Timestamp, uuidv7 } from "../uuid.js";
 
@@ -31,6 +31,29 @@ describe("UUID v7", () => {
 
     // In a B-Tree index, every subsequent UUID must sort after the previous one
     expect(generated).toEqual(sorted);
+  });
+
+  it("should advance the timestamp on sequence rollover within one millisecond", () => {
+    // Freeze the clock: every call lands in the same millisecond, so the
+    // 12-bit counter must wrap within 4096 calls and push time forward.
+    const frozenNow = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(frozenNow);
+    try {
+      let sawRollover = false;
+      let previous = uuidv7();
+      for (let i = 0; i < 5000; i++) {
+        const current = uuidv7();
+        expect(current > previous).toBe(true);
+        if (getUuidv7Timestamp(current).getTime() > frozenNow) {
+          sawRollover = true;
+          break;
+        }
+        previous = current;
+      }
+      expect(sawRollover).toBe(true);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("should extract embedded millisecond timestamp accurately", () => {

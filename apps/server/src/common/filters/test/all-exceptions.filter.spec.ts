@@ -160,6 +160,16 @@ describe("AllExceptionsFilter", () => {
     expect(body.issues).toBeUndefined();
   });
 
+  it("should fall back to generic names for unrecognized status codes", () => {
+    filter.catch(new HttpException("Something exotic", 599), mockHost);
+    const body = mockJson.mock.calls[0]?.[0] as ApiErrorResponse;
+    expect(body.statusCode).toBe(599);
+    // No HttpStatus name exists for 599: the human-readable error falls back
+    // to "Error", while the machine code still derives from the 5xx class.
+    expect(body.error).toBe("Error");
+    expect(body.code).toBe("INTERNAL_SERVER_ERROR");
+  });
+
   it("should handle array messages and custom error code in exception object", () => {
     const exception = new BadRequestException({
       message: ["first error", "second error"],

@@ -27,6 +27,12 @@ describe("runValidate Command", () => {
     expect(success).toBe(true);
   });
 
+  it("should fail closed in CI mode when locales directory does not exist", async () => {
+    const success = await runValidate({ localesDir: join(tempDir, "missing_dir"), ci: true });
+    expect(success).toBe(false);
+    expect(process.exitCode).toBe(1);
+  });
+
   it("should return false if source catalog is missing", async () => {
     const success = await runValidate({ localesDir, sourceLocale: "en" });
     expect(success).toBe(false);

@@ -21,6 +21,7 @@ describe("validateEnv", () => {
     expect(env.SMTP_HOST).toBeUndefined();
     expect(env.SMTP_SECURE).toBe(false);
     expect(env.NORMALIZE_EMAIL).toBe(false);
+    expect(env.APP_VERSION).toBe("0.0.0");
     expect(env.DATABASE_URL).toBe(validBase.DATABASE_URL);
     expect(env.JWT_SECRET).toBe(validBase.JWT_SECRET);
   });
@@ -122,6 +123,23 @@ describe("validateEnv", () => {
         NODE_ENV: "staging_invalid",
       }),
     ).toThrow("Invalid environment variables");
+  });
+
+  it("should skip empty entries in CORS origin lists", () => {
+    const env = validateEnv({
+      ...validBase,
+      CORS_ORIGIN: "https://a.example.com,, https://b.example.com ,",
+    });
+    expect(env.CORS_ORIGIN).toBe("https://a.example.com,, https://b.example.com ,");
+  });
+
+  it("should throw for wildcard or non-http CORS origins", () => {
+    expect(() => validateEnv({ ...validBase, CORS_ORIGIN: "*" })).toThrow(
+      "Invalid environment variables",
+    );
+    expect(() => validateEnv({ ...validBase, CORS_ORIGIN: "not-a-url" })).toThrow(
+      "Invalid environment variables",
+    );
   });
 
   it("should transform string representations of SMTP_SECURE to boolean", () => {

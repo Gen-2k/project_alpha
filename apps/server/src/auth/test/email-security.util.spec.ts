@@ -110,6 +110,28 @@ describe("email-security.util", () => {
       expect(result).toBe(false);
     });
 
+    it("should reject domain with empty-string Null MX exchange", async () => {
+      const mockResolver: DnsResolverInterface = {
+        resolveMx: () => Promise.resolve([{ exchange: "", priority: 0 }]),
+        resolve4: () => Promise.resolve([]),
+      };
+
+      const result = await checkEmailDomain("user@nomail2.com", { dnsResolver: mockResolver });
+      expect(result).toBe(false);
+    });
+
+    it("should fall back to A records when MX returns an empty list", async () => {
+      const mockResolver: DnsResolverInterface = {
+        resolveMx: () => Promise.resolve([]),
+        resolve4: () => Promise.resolve(["192.0.2.5"]),
+      };
+
+      const result = await checkEmailDomain("user@mxless-domain.com", {
+        dnsResolver: mockResolver,
+      });
+      expect(result).toBe(true);
+    });
+
     it("should fall back to A record resolution when MX returns ENODATA (RFC 5321)", async () => {
       const mockResolver: DnsResolverInterface = {
         resolveMx: () => {

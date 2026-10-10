@@ -54,4 +54,36 @@ describe("RequestIdMiddleware", () => {
     expect(setHeaderMock).toHaveBeenCalledWith(REQUEST_ID_HEADER, req.id);
     expect(nextMock).toHaveBeenCalledOnce();
   });
+
+  it("should replace ids containing illegal characters to block log injection", () => {
+    const req = {
+      headers: { [REQUEST_ID_HEADER]: "evil-id\ninjected: true" },
+    } as unknown as RequestWithId;
+    const setHeaderMock = vi.fn();
+    const res = { setHeader: setHeaderMock } as unknown as Response;
+    const nextMock = vi.fn();
+
+    middleware.use(req, res, nextMock);
+
+    expect(req.id).not.toBe("evil-id\ninjected: true");
+    expect(req.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(nextMock).toHaveBeenCalledOnce();
+  });
+
+  it("should replace overlong ids to prevent header bloat", () => {
+    const req = {
+      headers: { [REQUEST_ID_HEADER]: "a".repeat(200) },
+    } as unknown as RequestWithId;
+    const setHeaderMock = vi.fn();
+    const res = { setHeader: setHeaderMock } as unknown as Response;
+    const nextMock = vi.fn();
+
+    middleware.use(req, res, nextMock);
+
+    expect(typeof req.id).toBe("string");
+    if (typeof req.id === "string") {
+      expect(req.id.length).toBeLessThan(200);
+    }
+    expect(nextMock).toHaveBeenCalledOnce();
+  });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { renderAccountDeletedNotification } from "../templates/account-deleted.template.js";
-import { escapeHtml, renderEmailLayout } from "../templates/email.layout.js";
+import { escapeHtml, renderEmailLayout, sanitizeUrl } from "../templates/email.layout.js";
 import { renderMemberAddedNotification } from "../templates/member-added.template.js";
 import { renderOrganizationInvitationEmail } from "../templates/organization-invitation.template.js";
 import { renderPasswordChangedNotification } from "../templates/password-changed.template.js";
@@ -14,6 +14,19 @@ describe("Email Templates", () => {
       const unsafe = `Ada <Lovelace> & "Babbage" 'test'`;
       const safe = escapeHtml(unsafe);
       expect(safe).toBe("Ada &lt;Lovelace&gt; &amp; &quot;Babbage&quot; &#039;test&#039;");
+    });
+  });
+
+  describe("sanitizeUrl", () => {
+    it("should pass through http(s) URLs", () => {
+      expect(sanitizeUrl("  https://example.com/reset?token=abc  ")).toBe(
+        "https://example.com/reset?token=abc",
+      );
+    });
+
+    it("should neutralize non-http schemes to block href XSS", () => {
+      expect(sanitizeUrl("javascript:alert(1)")).toBe("#");
+      expect(sanitizeUrl("data:text/html,<h1>x</h1>")).toBe("#");
     });
   });
 
