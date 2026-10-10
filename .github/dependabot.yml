@@ -1,0 +1,20 @@
+# Weekly update PRs for npm packages and GitHub Actions. Install-time safety
+# still applies (minimumReleaseAge in .npmrc delays brand-new releases;
+# --frozen-lockfile in CI fails if a PR forgets the lockfile). Review each PR
+# like any other: check `pnpm check` is green, then merge.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [deps]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [ci]

@@ -1,0 +1,4 @@
+# Normalize line endings cross-OS (Windows devs, Linux CI): text files are
+# stored with LF, checked out with native endings. Without this, git prints
+# "LF will be replaced by CRLF" warnings and diffs get noisy.
+* text=auto eol=lf

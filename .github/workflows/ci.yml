@@ -34,6 +34,9 @@ jobs:
 
       # Reproducible install: fails if pnpm-lock.yaml is stale.
       - run: pnpm install --frozen-lockfile
+      # peers is a pnpm built-in subcommand (not an npm binary): knip's script
+      # parser flags it as unlisted, so knip.json `ignoreBinaries` covers it.
+      - run: pnpm peers check
       - run: pnpm format:check
       - run: pnpm lint
       # Root tooling configs (single flat ESLint config lives at root).
@@ -43,3 +46,28 @@ jobs:
       # app/package defines those scripts, then run dependency-aware + cached.
       - run: pnpm test
       - run: pnpm build
+      # Hard gates beyond `pnpm check`: secrets, known CVEs, duplication budget.
+      # - audit stays at `critical` (not `high`): the 2 remaining highs are
+      #   dev-only transitives with no published fix (braces via
+      #   eslint-plugin-check-file, source-map-js via vitest) — neither ships
+      #   in the server runtime. Re-tighten after upstream publishes fixes.
+      - run: pnpm audit --audit-level=critical
+      # - jscpd scope is server+validation+database (verified 4.03% vs 5%
+      #   threshold); packages/cli excluded until scanner/rewriter clones
+      #   are cleaned, then expand scope.
+      - run: npx -y jscpd@4.0.5 --config jscpd.json apps/server/src packages/validation/src packages/database/src --silent
+      # - knip is blocking: zero findings (dead deps pruned, phantom
+      #   `@formatjs/icu-messageformat-parser` import declared in
+      #   packages/cli, `ignoreExportsUsedInFile` covers same-file DTO
+      #   contracts, string-referenced `pino-pretty` ignored in knip.json).
+      - run: npx -y knip@5 --config knip.json
+
+  secrets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2

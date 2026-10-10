@@ -1,0 +1,6 @@
+# CODEOWNERS — required review for every PR (branch protection enforces this).
+# Single owner today; expand to team handles / path-scoped owners as the team grows.
+# Example future split:
+# /apps/server/src/auth/        @Gen-2k @security-team
+# /packages/database/           @Gen-2k @backend-team
+* @Gen-2k

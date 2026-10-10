@@ -6,3 +6,5 @@ coverage
 .next
 *.tsbuildinfo
 pnpm-lock.yaml
+# No prettier parser (GitHub owners syntax, not code).
+.github/CODEOWNERS

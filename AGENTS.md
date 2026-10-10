@@ -1,7 +1,8 @@
 # AGENTS.md — project_alpha
 
 Monorepo (pnpm 11 workspaces + Turborepo): `apps/server` (NestJS 12, ESM),
-`packages/{typescript-config,eslint-config,validation,database}`. Node >=24
+`packages/{typescript-config,eslint-config,validation,database,cli}` (cli = Giltflow
+continuous-localization CLI). Node >=24
 (pinned 11.22.0 via `packageManager`), TypeScript 6.0.3 via `catalog:`.
 
 ## Commands (run from root)
@@ -24,6 +25,8 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
   (`apps/web,admin`, `packages/ui`), Node (`apps/server,api,worker`,
   `packages/database`), everything else base-only (keep isomorphic libs
   runtime-agnostic). `--max-warnings 0` everywhere: warnings fail CI.
+  (React paths and `apps/api,worker` are future — only `apps/server`,
+  `packages/database,cli` exist today; `packages/cli` is also Node-scoped.)
 - Every linted file must belong to a real tsconfig (Project Service has
   no `allowDefaultProject` fallback — that was removed deliberately).
   Emitters use a separate `tsconfig.build.json` (clean `rootDir`); no
@@ -33,10 +36,21 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
   packages need `engines: node>=24` + `@types/node` (the Node lint rules
   and `types: ["node"]` depend on them).
 - Tests: colocated `*.spec.ts` under full strictness (fake Db boundaries,
-  real crypto — see `auth.service.spec.ts` for the pattern). No e2e suite
+  real crypto — see `apps/server/src/auth/test/auth.service.spec.ts` for the pattern). No e2e suite
   currently (removed deliberately; live boot + curl is the integration
   proof). The `no-unsafe-*` carve-out for `*.e2e-spec.ts` stays dormant in
   `eslint.config.js` for their return — don't remove it.
+- Structural budget (anti-slop, in `packages/eslint-config/base.js`):
+  `complexity` 20, `max-lines-per-function` 100, `max-params` 7, `max-depth` 4;
+  `*.spec.ts` exempt from length (describe blocks bundle cases by design),
+  `packages/cli/**` exempt from complexity/length/depth until the
+  rewriter+scanner refactor (CC 54, 329-line functions — tracked hotspot).
+  Tighten toward 10/50 only after refactoring `all-exceptions.filter.ts`
+  (CC 20) + `organizations.service.ts` + `auth.service.ts` + cli.
+- PRs: one task = one PR, <500 LOC for AI-assisted PRs; human-written assertions
+  in colocated `*.spec.ts` (red→green, implementer never edits tests to pass);
+  intent + blast radius + risk tier in the PR body per the template; author must
+  walk through every line without AI help.
 - Commits: Conventional Commits enforced by commitlint
   (`feat(server): …`; scopes: web, admin, api, server, worker, ui, utils,
   types, validation, config, repo, ci). Pre-commit runs lint-staged only —
@@ -92,11 +106,17 @@ Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First
 - Editor shows errors but CLI is green → stale ESLint server: restart it
   (`ESLint: Restart ESLint Server`), don't "fix" the config. Same for
   TS version: use the workspace TypeScript, not the editor's bundled one.
-- `docs/` and `README.md` were deleted deliberately — do not recreate them.
-  Architectural why-comments live in the config files themselves.
+- `README.md` was deleted deliberately — do not recreate it. `docs/` holds the
+  frozen product-discovery blueprint (read-only context, do not expand without
+  approval). Architectural why-comments live in the config files themselves.
 - Never scaffold fake apps/packages to exercise tooling; if you must probe
   future paths, create, verify, and delete in the same session.
-- CI (`.github/workflows/ci.yml`) mirrors `check` exactly; keep them in sync.
+- CI (`.github/workflows/ci.yml`) runs `check` plus hard gates (CODEOWNERS review,
+  gitleaks secrets, `pnpm audit --audit-level=critical`, jscpd duplication budget
+  per `jscpd.json`, knip dead-code gate per `knip.json` (blocking, zero findings);
+  keep `check` and CI in sync when adding gates. PRs use
+  `.github/pull_request_template.md` (intent + blast radius + risk tier in the PR
+  body, <500 LOC for AI-assisted PRs, walkthrough required).
 
 ## Scope & Future Roadmap Decisions
 

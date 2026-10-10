@@ -140,6 +140,42 @@ export default defineConfig(
       // `no-implied-eval` (setTimeout("…")) already comes from the preset.
       "no-eval": "error",
       "no-new-func": "error",
+      // Anti-slop structural budget: catches the 300-line god-functions from
+      // the 90-day reckoning without breaking current main (verified:
+      // hottest paths today are CC 20 in all-exceptions.filter.ts and
+      // 94-line service methods, so 20/100 keeps main green while blocking
+      // new monsters). Tighten toward 10/50 only after refactoring the
+      // filter + organizations.service.ts + auth.service.ts.
+      complexity: ["error", 20],
+      "max-lines-per-function": [
+        "error",
+        { max: 100, skipBlankLines: true, skipComments: true, IIFEs: true },
+      ],
+      // NestJS constructors legitimately inject 5+ providers; 7 allows DI
+      // while still catching god-function parameter lists.
+      "max-params": ["error", 7],
+      "max-depth": ["error", 4],
+    },
+  },
+  // Spec `describe` blocks bundle dozens of cases per file by design —
+  // length there is coverage, not slop. Duplication in specs is still
+  // caught by jscpd; complexity still applies.
+  {
+    files: ["**/*.spec.ts"],
+    rules: {
+      "max-lines-per-function": "off",
+    },
+  },
+  // packages/cli is the known slop hotspot (verified 2026-10-10: rewriteJsx
+  // CC 27 / 329 lines, scanner `enter` CC 54, nesting depth 6). The budget
+  // stays enforced on server+validation+database; cli gets budget-exempt
+  // until the rewriter/scanner refactor lands, then delete this block.
+  {
+    files: ["packages/cli/**/*.ts"],
+    rules: {
+      complexity: "off",
+      "max-lines-per-function": "off",
+      "max-depth": "off",
     },
   },
   // Prettier last: disables stylistic ESLint rules so formatting
