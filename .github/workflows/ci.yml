@@ -16,7 +16,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history: enables Turbo affected filtering later
           # (`turbo run check --filter=[HEAD^1...HEAD]` on PRs).
@@ -26,7 +26,7 @@ jobs:
         with:
           version: 11.22.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # Single source of truth: .nvmrc (matches engines + local dev).
           node-version-file: .nvmrc
@@ -67,7 +67,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # v2+ requires an explicit token to scan PRs (fails in ~5s without it).
       - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
