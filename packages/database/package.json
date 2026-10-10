@@ -17,6 +17,7 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
+    "test:cov": "vitest run --passWithNoTests",
     "clean": "rimraf dist coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
