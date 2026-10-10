@@ -16,6 +16,7 @@ This document serves as the formal decision log for **Project Alpha**, recording
 | [**ADR-006**](#adr-006-virtual-copy-on-write-branch-isolation-mirroring-git-dag)       | Virtual Copy-on-Write Branch Isolation Mirroring Git DAG           | **APPROVED** | 2026-09-27 |
 | [**ADR-007**](#adr-007-infrastructure-aligned-pricing-vs-hosted-key--seat-taxes)       | Infrastructure-Aligned Pricing vs. Hosted Key & Seat Taxes         | **APPROVED** | 2026-09-27 |
 | [**ADR-008**](#adr-008-exclusion-of-vendor-erp-and-desktop-software-from-scope)        | Exclusion of Vendor ERP and Desktop Software from Scope            | **APPROVED** | 2026-09-27 |
+| [**ADR-009**](#adr-009-decoupled-parallel-cicd-pipeline--hermetic-docker-packaging)    | Decoupled Parallel CI/CD Pipeline & Hermetic Docker Packaging      | **APPROVED** | 2026-10-10 |
 
 ---
 
@@ -76,3 +77,10 @@ This document serves as the formal decision log for **Project Alpha**, recording
 - **Context:** Traditional LSPs demand back-office accounting, invoicing, and purchase order tracking in their TMS.
 - **Decision:** Explicitly exclude vendor invoicing ERPs, tax compliance, and Windows desktop software from the product roadmap. Provide clean XLIFF and REST APIs for external agency handoffs.
 - **Rationale:** Prevents severe scope creep and maintains relentless focus on developer-native automation.
+
+### ADR-009: Decoupled Parallel CI/CD Pipeline & Hermetic Docker Packaging
+
+- **Status:** **APPROVED [DECISION]**
+- **Context:** Monolithic, sequential CI jobs caused slow feedback loops, lack of failure isolation, and missing build-stage references in `Dockerfile` that broke container compilation.
+- **Decision:** Implement a 6-job parallel CI matrix (`quality`, `typecheck`, `test`, `build`, `security`, `docker`) gated by a consolidated `ci-gate` for GitHub branch protection. Enforce Turborepo caching (`actions/cache@v4`), non-blocking PR concurrency cancellation, and hermetic BuildKit multi-stage Docker builds using `--from=build` stage references.
+- **Rationale:** Minimizes pull request feedback latency, isolates static analysis from runtime and security failures, and ensures repeatable, zero-drift production container images.

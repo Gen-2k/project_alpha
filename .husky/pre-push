@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# Prevent accidental deletion of main branch locally
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+      echo "❌ [pre-push] Deleting the 'main' branch is prohibited." >&2
+      exit 1
+    fi
+  fi
+done
+
+exit 0
