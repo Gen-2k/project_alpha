@@ -17,23 +17,26 @@ Downstream consumers / migrations (`db:generate` needed?):
 
 Risk tier: `fast` (config/docs) / `standard` (feature) / `hardened` (auth, RBAC, audit_logs, payments, crypto)
 
-## AI disclosure
+## Real Engineering & Anti-Slop Audit
 
-- [ ] Human wrote test assertions, AI scaffolded implementation (or: no AI used)
-- [ ] Searched for existing utils before adding new ones (`formatDate`, `validateEmail`, …)
-- [ ] I can walk through every line without consulting the AI
+- [ ] **Transactions**: Multi-table mutations wrapped in explicit ACID `db.transaction(...)`; external APIs/emails run outside DB transactions.
+- [ ] **Concurrency**: Atomic SQL operations or row locks used; no naive "read-then-write" in-memory loops.
+- [ ] **Statelessness**: Zero process-local `Map` or in-memory variables used for persistence or rate limits.
+- [ ] **Boundaries & Errors**: Inputs strictly parsed with Zod (no unsafe `as Type`); errors propagated explicitly without silent catch swallowing.
+- [ ] **Architecture**: Direct 3-tier structure; zero speculative abstractions or unnecessary interfaces.
+- [ ] **Test Realism**: Assertions verify observable behavior and edge cases, zero mock theater.
 
-## Proof
+## AI Disclosure & Discipline
 
-- [ ] `pnpm check` green (format + lint + typecheck + test + build + lint:root)
-- [ ] New/updated colocated `*.spec.ts` (happy path + edge case + error case), red -> green observed
-- [ ] Live boot + curl smoke (`:3001`, `/docs`) if server touched, then killed
-- [ ] No `passwordHash` in outbounds (explicit projections)
+- [ ] Human wrote or verified test assertions; AI scaffolded implementation (or no AI used).
+- [ ] Searched and reused existing helpers before adding new code (zero duplicates).
+- [ ] Line-by-line comprehension: Author can walk through every line without consulting AI.
 
-## Checklist
+## Proof & Verification
 
-- [ ] <500 LOC or split with reason
-- [ ] No duplication introduced (checked `validate*`, `format*`, query patterns)
-- [ ] ESM `.js` suffixes in `apps/*`; package specifiers in `packages/*`
-- [ ] Shared versions via `catalog:`, local code via `workspace:*`
-- [ ] Conventional Commits (`feat(server): …`)
+- [ ] `pnpm check` green (format check + lint + typecheck + test:cov + build + lint:root + jscpd + knip).
+- [ ] New/updated colocated `*.spec.ts` (happy path + edge case + error case), red -> green observed.
+- [ ] Live boot + curl smoke (`:3001`, `/docs`) if server touched, then killed.
+- [ ] Outbound user projections never include `passwordHash`.
+- [ ] ESM `.js` suffixes in `apps/*`; package specifiers in `packages/*`.
+- [ ] Conventional Commits used (`feat(server): ...`).

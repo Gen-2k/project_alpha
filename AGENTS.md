@@ -1,137 +1,180 @@
 # AGENTS.md — project_alpha
 
-Monorepo (pnpm 11 workspaces + Turborepo): `apps/server` (NestJS 12, ESM),
-`packages/{typescript-config,eslint-config,validation,database,cli}` (cli = Giltflow
-continuous-localization CLI). Node >=24
-(pinned 11.22.0 via `packageManager`), TypeScript 6.0.3 via `catalog:`.
+Monorepo architecture and operational guide for agents and contributors.
 
-## Commands (run from root)
+---
+
+## 1. Overview & Stack
+
+- **Monorepo Manager**: pnpm workspaces (`packageManager: pnpm@11.22.0`) + Turborepo 2.
+- **Runtime & Language**: Node.js `>=24.0.0` (ESM native, NodeNext resolution, native type stripping), TypeScript `catalog:`.
+- **Active Workspaces**:
+  - `apps/server`: NestJS 12 backend API (NodeNext ESM, Drizzle ORM, Zod, Pino).
+  - `packages/cli`: Giltflow continuous-localization CLI (`bin: giltflow`).
+  - `packages/database`: PostgreSQL 16 schema, Drizzle ORM client, UUIDv7 utilities, and migrations.
+  - `packages/validation`: Isomorphic Zod validation schemas shared across backend and future frontends.
+  - `packages/eslint-config`: Shared flat ESLint 9 preset configurations (`base`, `node`, `react`).
+  - `packages/typescript-config`: Shared TypeScript configurations (`base.json`, `node.json`, `react.json`).
+
+---
+
+## 2. Developer Commands (Run from Root)
 
 ```bash
-pnpm install                    # then: pnpm check
-pnpm check                      # = format:check && turbo lint typecheck test build && lint:root
-pnpm lint / pnpm lint:fix / pnpm lint:root   # graph lint / autofix / root tooling configs
-pnpm --filter server test       # one package; single file: pnpm --filter server exec vitest run <path-from-package-dir>
-pnpm --filter server dev        # nest start --watch (:3001); smoke-test with curl, then kill it (kill by port owner — wrappers orphan grandchildren)
+# Setup & Full Verification
+pnpm install                          # Install dependencies (respects supply-chain policies)
+pnpm check                            # Run format:check, lint, typecheck, test:cov, build, lint:root, jscpd, knip
+
+# Development & Testing
+pnpm dev                              # Start dev processes across workspace (Turbo)
+pnpm --filter server dev              # Start NestJS API in watch mode (:3001)
+pnpm test                             # Run all tests across workspace
+pnpm test:cov                         # Run all tests with coverage thresholds enforced
+pnpm --filter server test             # Run server tests; single file: pnpm --filter server exec vitest run <path>
+
+# Code Quality & Static Analysis
+pnpm format / pnpm format:check       # Prettier autofix / check
+pnpm lint / pnpm lint:fix             # Workspace ESLint / autofix
+pnpm lint:root                        # Lint root tooling configs (eslint.config.js, commitlint.config.js)
+pnpm jscpd                            # Duplication budget gate (<= 5% on active codebase)
+pnpm knip                             # Dead-code and unused exports gate (blocking, zero findings)
+pnpm audit                            # Audit dependencies for critical CVEs
+
+# Database Operations (Docker Postgres on host port 5433)
+pnpm db:up / pnpm db:down             # Start / stop local PostgreSQL 16 container
+pnpm --filter database db:generate    # Generate Drizzle migration SQL files in packages/database/drizzle/
+pnpm --filter database db:migrate     # Apply migrations to database (requires DATABASE_URL)
+pnpm --filter database db:push        # Prototype schema directly without migrations (dev-only)
+
+# CLI Tooling
+pnpm giltflow --help                  # Run local Giltflow localization CLI
+pnpm clean                            # Clean dist/ and coverage/ across all packages (rimraf)
 ```
 
-Shell is PowerShell 5.1: no `&&` (use `;`), no `head` (use `Select-Object -First`),
-`rm -rf` doesn't exist — use the `clean` scripts (rimraf).
+> **Windows PowerShell 5.1 Rules**: No POSIX `&&` (use `;`), no `head` (use `Select-Object -First`), and no `rm -rf` (use `pnpm clean` or rimraf).
 
-## Architecture rules (enforced by convention, not all by tooling)
+---
 
-- One root flat `eslint.config.js`; **never** add per-package ESLint configs.
-  Presets in `packages/eslint-config/` scoped by path: React
-  (`apps/web,admin`, `packages/ui`), Node (`apps/server,api,worker`,
-  `packages/database`), everything else base-only (keep isomorphic libs
-  runtime-agnostic). `--max-warnings 0` everywhere: warnings fail CI.
-  (React paths and `apps/api,worker` are future — only `apps/server`,
-  `packages/database,cli` exist today; `packages/cli` is also Node-scoped.)
-- Every linted file must belong to a real tsconfig (Project Service has
-  no `allowDefaultProject` fallback — that was removed deliberately).
-  Emitters use a separate `tsconfig.build.json` (clean `rootDir`); no
-  TypeScript project references (Turbo orders builds).
-- Deps: local code via `workspace:*`, shared versions via `catalog:` (edit
-  the catalog, never inline a version another package shares). CI scanners
-  (`jscpd`, `knip`) are exact-pinned in root devDependencies instead: they are
-  single-use at root, lockfile-pinned, and dependabot-managed. Backend
-  packages need `engines: node>=24` + `@types/node` (the Node lint rules
-  and `types: ["node"]` depend on them).
-- Tests: colocated `*.spec.ts` under full strictness (fake Db boundaries,
-  real crypto — see `apps/server/src/auth/test/auth.service.spec.ts` for the pattern). No e2e suite
-  currently (removed deliberately; live boot + curl is the integration
-  proof). The `no-unsafe-*` carve-out for `*.e2e-spec.ts` stays dormant in
-  `eslint.config.js` for their return — don't remove it.
-- Structural budget (anti-slop, in `packages/eslint-config/base.js`):
-  `complexity` 20, `max-lines-per-function` 100, `max-params` 7, `max-depth` 4;
-  `*.spec.ts` exempt from length (describe blocks bundle cases by design),
-  `packages/cli/**` exempt from complexity/length/depth until the
-  rewriter+scanner refactor (CC 54, 329-line functions — tracked hotspot).
-  Tighten toward 10/50 only after refactoring `all-exceptions.filter.ts`
-  (CC 20) + `organizations.service.ts` + `auth.service.ts` + cli.
-- PRs: one task = one PR, <500 LOC for AI-assisted PRs; human-written assertions
-  in colocated `*.spec.ts` (red→green, implementer never edits tests to pass);
-  intent + blast radius + risk tier in the PR body per the template; author must
-  walk through every line without AI help.
-- Commits: Conventional Commits enforced by commitlint
-  (`feat(server): …`; scopes: web, admin, api, server, worker, ui, utils,
-  types, validation, config, repo, ci). Pre-commit runs lint-staged only —
-  typecheck/tests live in CI.
+## 3. Core Architectural Invariants
 
-## NestJS specifics (`apps/server`)
+### 3.1 Strict ESM & Source Imports
 
-- Generated by official CLI into temp, then adapted — **never run
-  `nest new` inside the repo**. `@nestjs/cli` is a devDep for `nest g`
-  generators only; build/dev are `nest build` / `nest start --watch`.
-- ESM: `"type": "module"` + NodeNext. Two import rules, split by who
-  consumes the file: inside `apps/*`, relative imports **must** end in
-  `.js` (emitted dist runs on plain Node). Inside `packages/*`, always
-  import siblings via the package specifier (`@repo/database/schema`, never
-  `./schema.js`) — packages resolve as SOURCE (Node type-strips `.ts`
-  directly) and `./x.js` names a file that doesn't exist on disk; only
-  Vitest/tsc guess extensions, Node doesn't. Applies to tests too.
-  `tsconfig.json` additions beyond the node preset are all
-  load-bearing: `experimentalDecorators` + `emitDecoratorMetadata` (DI),
-  `strictPropertyInitialization: false` (framework-populated DTOs),
-  explicit `esModuleInterop: true` (removed-in-TS-7 `false` must not return).
-- Validation is Zod (`@repo/validation/auth`), not class-validator, via a
-  hand-rolled `ZodValidationPipe` — schemas stay portable to future
-  frontend forms. Env via `@nestjs/config` + Zod `validateEnv` (fail fast);
-  `PORT`/`DATABASE_URL`/`JWT_SECRET` (+ expiries with defaults;
-  `.env.example` committed, real `.env` ignored).
-  Swagger at `/docs`.
-- Auth: deny-by-default global `JwtAuthGuard` + `@Public()` escape;
-  access (15m) + rotating refresh (7d, SHA-256 hashes in DB, reuse
-  revokes the compromised device familyId per RFC 6819). Passwords =
-  bcryptjs (pure JS, no native builds); outbounds never include
-  `passwordHash` (explicit projections).
-- `@Module()` empty classes are legal (`allowWithDecorator` is set —
-  don't "fix" them by adding members).
+- **Apps (`apps/*`)**: Must use relative imports ending with `.js` (e.g. `import { foo } from "./foo.js"`). Compiled code runs on Node.js directly.
+- **Packages (`packages/*`)**: Must import sibling workspace packages via their package specifier (e.g. `import * as schema from "@repo/database/schema"`), **never** relative paths like `./schema.js`. Packages resolve as raw TypeScript source files stripped at load time by Node 24.
+- Decorator metadata additions in `apps/server/tsconfig.json` (`experimentalDecorators`, `emitDecoratorMetadata`, `strictPropertyInitialization: false`, `esModuleInterop: true`) are strictly required for NestJS DI.
 
-## Gotchas
+### 3.2 ESLint & Project Service
 
-- Database (PostgreSQL 16 via `docker-compose.yml`, Drizzle ORM):
-  `pnpm db:up` / `pnpm db:down`. Host port is 5433 (some dev machines
-  already run native Postgres on 5432 — never change the mapping without
-  updating `.env.example` + compose together). Primary keys use RFC 9562
-  monotonic `uuidv7()` for sequential B-Tree performance and IDOR protection.
-  Schema lives in `packages/database/src/schema.ts`: edit it, then
-  `pnpm --filter database db:generate` (commits SQL under `drizzle/`),
-  then `db:migrate` with `DATABASE_URL` exported. `db:push` skips files (dev only).
-- New dependency with a postinstall (e.g. telemetry) fails install with
-  `ERR_PNPM_IGNORED_BUILDS`: run `pnpm approve-builds` (we answered false
-  for `@scarf/scarf` — keep it that way). pnpm auto-appends
-  `minimumReleaseAgeExclude` entries; leave them, don't hand-edit.
-- `pnpm peers check` must be clean; it won't catch version _splits_
-  (lint on TS-A + typecheck on TS-B) — after any TS/plugin upgrade, grep
-  the lockfile for duplicate majors.
-- Editor shows errors but CLI is green → stale ESLint server: restart it
-  (`ESLint: Restart ESLint Server`), don't "fix" the config. Same for
-  TS version: use the workspace TypeScript, not the editor's bundled one.
-- `README.md` was deleted deliberately — do not recreate it. `docs/` holds the
-  frozen product-discovery blueprint (read-only context, do not expand without
-  approval). Architectural why-comments live in the config files themselves.
-- Never scaffold fake apps/packages to exercise tooling; if you must probe
-  future paths, create, verify, and delete in the same session.
-- CI (`.github/workflows/ci.yml`) runs `check` plus hard gates (CODEOWNERS review,
-  gitleaks secrets, `pnpm audit --audit-level=critical`, jscpd duplication budget
-  per `jscpd.json`, knip dead-code gate per `knip.json` (blocking, zero findings),
-  server coverage thresholds per `apps/server/vitest.config.ts`, `docker build`
-  proof of the production image); keep `check` and CI in sync when adding gates.
-  keep `check` and CI in sync when adding gates. PRs use
-  `.github/pull_request_template.md` (intent + blast radius + risk tier in the PR
-  body, <500 LOC for AI-assisted PRs, walkthrough required).
+- **Single Flat Config**: Exactly one root `eslint.config.js`. Never create per-package ESLint configurations.
+- **Typed Linting**: Uses typescript-eslint Project Service (`projectService: true`). Every linted file must belong to a recognized `tsconfig.json`.
+- Emitters compile via separate `tsconfig.build.json` files with clean `rootDir: "src"`. No TypeScript project references (Turbo coordinates builds).
 
-## Scope & Future Roadmap Decisions
+### 3.3 Dependency Governance
+
+- **Local Packages**: Always use `workspace:*`.
+- **Shared Versions**: Always declare in the root `catalog:` within `pnpm-workspace.yaml`. Never inline conflicting ranges across packages.
+- **CI Scanners**: `jscpd` and `knip` are pinned in root `devDependencies` for dependabot management.
+- **Supply Chain Guardrails (`.npmrc`)**: Enforces `shamefully-hoist=false`, `strict-peer-dependencies=true`, and `minimumReleaseAge=20160` (14-day delay on new npm releases to block supply-chain zero-days).
+
+### 3.4 Anti-Slop Structural Budgets & Quarantine
+
+- Base rules enforce: `complexity: 20`, `max-lines-per-function: 100`, `max-params: 7`, `max-depth: 4`.
+- Spec/test files (`**/*.spec.ts`, `**/*.test.ts`) are exempt from function length.
+- **Quarantined Debt**: `packages/cli` is temporarily exempt from structural complexity/length budgets and `jscpd` scanning until the scanner/rewriter refactor is complete.
+
+### 3.5 Security & Data Identity
+
+- **Deny-by-Default Auth**: Global `JwtAuthGuard` applied to all routes unless decorated with `@Public()`. Refresh tokens are explicitly blocked from bearer endpoints (OWASP ASVS V3.5.3).
+- **Token Rotation & Device Isolation**: 15m JWT access tokens + 7d rotating refresh tokens. Refresh tokens store only SHA-256 hashes in PostgreSQL; replaying a consumed token instantly revokes the device's `familyId` (RFC 6819).
+- **Hybrid Transport**: Browsers receive credentials in `HttpOnly; SameSite=Strict; Secure` cookies; non-browser clients (CLI/scripts) receive tokens in JSON payloads.
+- **RFC 9562 Monotonic UUIDv7**: All database primary keys use monotonic `uuidv7()` for sequential B-Tree indexing and IDOR prevention.
+- **Strict Zod Boundaries**: Request payloads and environment configurations are strictly parsed with Zod schemas via `ZodValidationPipe` and `validateEnv`. Outbound user projections never include `passwordHash`.
+
+### 3.6 Real Engineering vs. AI-Slop Mandates
+
+- **ACID Atomicity**: Multi-table mutations must execute inside an explicit database transaction (`db.transaction(...)`). External network calls (email, APIs) must **never** run inside a database transaction.
+- **Concurrency & Races**: Use atomic SQL updates (`UPDATE ... WHERE balance >= x`), row locks (`FOR UPDATE`), or database constraints. Never rely on naive application "read-then-write" loops.
+- **Stateless Backend**: Zero in-memory Maps or process-local variables for state (sessions, counters, rate limits). Externalize shared state to PostgreSQL or Redis.
+- **No "Abstractitis"**: Enforce direct 3-tier architecture: Transport (`Controller`) $\to$ Domain (`Service`) $\to$ Data (`Repository`/Drizzle). Do not invent speculative factories, adapters, or interfaces without multiple real implementations.
+- **Explicit Failure**: Fail fast and loudly. Never silently swallow errors in catch blocks (`console.log(e); return null;`). Bubble up to centralized error filters.
+- **Zero Mock Theater**: Unit tests must assert observable contract behavior and edge cases. Never mock the system under test or write assertions that verify only the mock itself.
+- **UI & Token Hygiene**: Use semantic design tokens (`bg-primary`, `border-border`) and shared primitives (`@/components/ui/*`). Never invent inline styles, palette-hopping colors, gratuitous gradients, or ungrounded floating chatbot gimmicks.
+
+---
+
+## 4. CI & Quality Pipeline (`.github/workflows/ci.yml`)
+
+The CI workflow runs **6 decoupled parallel jobs** with Turborepo caching:
+
+1. **`quality`**: Prettier formatting, workspace ESLint, root configs linting, JSCPD duplication check (budget $\le 5\%$), and Knip dead-code analysis.
+2. **`typecheck`**: TypeScript typechecking across all workspace packages (`turbo run typecheck`).
+3. **`test`**: Peer dependency verification (`pnpm peers check`) and parallel test suite execution enforcing 80% coverage floors across `server` and `validation` (`pnpm test:cov`).
+4. **`build`**: Production compilation of all packages and apps (`turbo run build`).
+5. **`security`**: Critical vulnerability audit (`pnpm audit --audit-level=critical`) and secret detection via Gitleaks (`gitleaks-action@v3`).
+6. **`docker`**: Multi-stage Docker build proof for `apps/server/Dockerfile` using BuildKit stage copying.
+7. **`ci-gate`**: Unified pipeline status gate required for GitHub Branch Protection.
+
+> **Concurrency**: Intermediate pull request runs are canceled (`cancel-in-progress: true`), but pushes to `main` always run to completion.
+
+---
+
+## 5. Git & PR Workflow
+
+- **Branch Protection & Trunk Discipline**:
+  - `main` is protected via GitHub Repository Rulesets: Force-pushing (`git push --force`) and branch deletions are strictly blocked.
+  - All work must be conducted on feature/topic branches (`feat/*`, `fix/*`, `chore/*`).
+  - Merging into `main` requires an approved Pull Request and a green `ci-gate` status check.
+- **Commits**: Conventional Commits enforced via `.husky/commit-msg` and `@commitlint/cli`.
+  - Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+  - Allowed scopes: `server`, `cli`, `database`, `validation`, `config`, `repo`, `ci`, `deps`, `deps-dev`.
+- **Pre-Commit**: Husky runs `lint-staged` on staged files only.
+- **Pull Requests**:
+  - Target `<500 LOC` for AI-assisted PRs.
+  - Colocated tests in `*.spec.ts` (human-authored assertions, red $\to$ green).
+  - Every PR must complete the checklist in `.github/pull_request_template.md`.
+
+---
+
+## 6. Scope & Roadmap Decisions
 
 - **In Scope (Planned for Future Platform Implementation)**:
-  - **Roles & Permissions (RBAC)**: Role hierarchy and permission guards (`@Roles(...)`).
-  - **User Profile Extensions**: App-dependent metadata fields on `users` table (schema will expand based on product UI needs).
-  - **Audit Logging**: Dedicated `audit_logs` database table tracking security-sensitive operations (authentication events, password changes, account deletions).
-- **Out of Scope (Deferred / Not Needed for now)**:
+  - **Roles & Permissions (RBAC)**: Role hierarchy expansion and fine-grained permission guards (`@Roles(...)`).
+  - **User Profile Extensions**: App-dependent metadata fields on `users` table based on product UI needs.
+  - **Audit Logging**: Dedicated `audit_logs` database table tracking security-sensitive operations (auth events, password changes, account deletions).
+- **Out of Scope (Deferred / Not Needed for Current Phase)**:
   - Bot Protection (CAPTCHA / Cloudflare Turnstile).
   - Multi-Factor Authentication (2FA / TOTP).
   - Social OAuth2 Logins (Google / GitHub SSO).
-- **Architectural Exploration (Deferred to multi-instance/scaling phase)**:
+- **Architectural Exploration (Deferred to Multi-Instance / Scaling Phase)**:
   - **Distributed Rate Limiting**: Redis-backed storage for `@nestjs/throttler` across multi-container load-balanced deployments.
   - **Asynchronous Email Queuing**: BullMQ + Redis background workers to decouple SMTP network latency from HTTP requests.
+  - **Automated Real-DB E2E Tests**: Testcontainers/PostgreSQL service integration in CI for true end-to-end HTTP boundary verification.
+
+---
+
+## 7. AI Session & Decision Lifecycle Protocol
+
+Every AI-assisted coding session must strictly follow this 4-step lifecycle:
+
+### 7.1 Grounding & Exploration (Before Coding)
+
+- **Consult `AGENTS.md` First**: Treat this document as the active source of architectural truth.
+- **Search Before Inventing**: Search existing utilities, helpers, and schemas before adding new abstractions.
+- **State Intent & Non-Goals**: Clearly articulate what is being implemented and what is explicitly excluded.
+
+### 7.2 Surgical Implementation & Continuous Verification
+
+- **Minimal Blast Radius**: Touch only the files directly required for the task.
+- **Colocated Spec Tests**: Author or update `*.spec.ts` files covering happy paths, edge cases, and failure modes.
+- **Non-Negotiable Quality Gate**: Every task must run and verify `pnpm check` (format check, lint, typecheck, coverage floors, build, root lint, jscpd duplication $\le 5\%$, knip dead code = 0).
+
+### 7.3 Decision Graduation (Never Leave in Ephemeral Chat)
+
+- **Architectural & Tech Decisions**: If a structural or technical choice was made, record a formal ADR in `docs/decisions/adr-log.md`.
+- **Roadmap & Scope Changes**: If milestone deliverables or phase definitions shift, update `docs/roadmap/phased-roadmap.md` and Section 6 of `AGENTS.md`.
+- **Operating Invariants**: If a project convention or guardrail evolves, update this `AGENTS.md` file.
+
+### 7.4 PR Completion & AI Disclosure
+
+- Open a PR from the feature branch targeting `main`.
+- Complete all sections of `.github/pull_request_template.md`, including the AI disclosure checklist (human assertion verification, utility deduplication, line-by-line comprehension).
