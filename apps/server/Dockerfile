@@ -47,9 +47,9 @@ COPY packages/typescript-config/package.json packages/typescript-config/
 # type-strip packages/* sources (see header comment).
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 # Compiled server + TypeScript sources of workspace packages (stripped at load).
-COPY apps/server/dist apps/server/dist
-COPY packages/database/src packages/database/src
-COPY packages/validation/src packages/validation/src
+COPY --from=build /app/apps/server/dist apps/server/dist
+COPY --from=build /app/packages/database/src packages/database/src
+COPY --from=build /app/packages/validation/src packages/validation/src
 # Never ship local secrets or build/test artifacts into the image.
 RUN rm -f apps/server/.env apps/server/.env.local && chown -R app:app /srv
 USER app
