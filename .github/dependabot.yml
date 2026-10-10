@@ -22,6 +22,12 @@ updates:
         patterns: ["@babel/*"]
       commitlint:
         patterns: ["@commitlint/*"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+      drizzle:
+        patterns: ["drizzle-orm", "drizzle-kit"]
+      pino:
+        patterns: ["pino*", "nestjs-pino"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
