@@ -99,8 +99,9 @@ export class AuthService {
     this.accessExpiresIn = config.getOrThrow<string>("JWT_ACCESS_EXPIRES_IN") as StringValue;
     this.refreshExpiresIn = config.getOrThrow<string>("JWT_REFRESH_EXPIRES_IN") as StringValue;
     this.refreshExpiresInMs = ms(this.refreshExpiresIn);
-    this.emailNormalizationEnabled =
-      typeof config.get === "function" ? (config.get<boolean>("NORMALIZE_EMAIL") ?? false) : false;
+    // ConfigService.get always exists (real service in app and tests):
+    // no typeof-guard needed, plain nullish default is enough.
+    this.emailNormalizationEnabled = config.get<boolean>("NORMALIZE_EMAIL") ?? false;
   }
 
   async register(dto: RegisterDto): Promise<RegisterResponseDto> {
@@ -390,6 +391,18 @@ export class AuthService {
         or(lt(emailVerificationTokens.expiresAt, now), isNotNull(emailVerificationTokens.usedAt)),
       )
       .returning({ id: emailVerificationTokens.id });
+    return { deleted: deletedRows.length };
+  }
+
+  // Abandoned reset rows otherwise accumulate forever: forgotPassword deletes
+  // previous tokens only when re-requested, and used rows stay for forensics
+  // with no reader. Same shape as the verification-token cleanup above.
+  async cleanupExpiredPasswordResetTokens(): Promise<{ deleted: number }> {
+    const now = new Date();
+    const deletedRows = await this.db
+      .delete(passwordResetTokens)
+      .where(or(lt(passwordResetTokens.expiresAt, now), isNotNull(passwordResetTokens.usedAt)))
+      .returning({ id: passwordResetTokens.id });
     return { deleted: deletedRows.length };
   }
 

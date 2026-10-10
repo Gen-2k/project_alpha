@@ -75,6 +75,9 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   NORMALIZE_EMAIL: booleanEnv(false),
+  // Baked in at image build (Docker ARG -> ENV); defaults to dev placeholder.
+  // Surfaced by /health so deploys are traceable to a build.
+  APP_VERSION: z.string().min(1).default("0.0.0"),
 });
 
 export type Env = z.infer<typeof envSchema>;

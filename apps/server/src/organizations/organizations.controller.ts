@@ -173,8 +173,13 @@ export class OrganizationsController {
     type: ApiErrorResponseDto,
     description: "Not a member or not found (existence hidden).",
   })
-  async getById(@Param("id", new ParseUUIDPipe()) id: string): Promise<OrganizationResponseDto> {
-    const org = await this.orgsService.findById(id);
+  async getById(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Req() req?: Request & { user?: JwtPayload },
+  ): Promise<OrganizationResponseDto> {
+    // Member-scoped read: returns undefined for non-members so existence
+    // stays hidden even if the route guard is ever misconfigured.
+    const org = await this.orgsService.findByIdForMember(id, req?.user?.sub ?? "");
     if (!org) {
       throw new ForbiddenException("You do not have access to this organization");
     }

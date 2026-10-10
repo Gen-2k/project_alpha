@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Transporter } from "nodemailer";
@@ -18,6 +20,17 @@ interface DispatchEmailOptions {
   text: string;
   html: string;
   devLogSummary: string;
+}
+
+// Console-mode must never print raw secret-bearing URLs: log shippers keep
+// logs far longer than token lifetimes. Replace `token=<secret>` with a
+// SHA-256 fingerprint (first 12 hex) so devs can still correlate a log line
+// with the DB `tokenHash` without the log becoming a takeover vector.
+function redactSecrets(summary: string): string {
+  return summary.replace(/token=([^\s&]+)/g, (_match, token: string) => {
+    const fingerprint = createHash("sha256").update(token).digest("hex").slice(0, 12);
+    return `token=sha256:${fingerprint}…(redacted)`;
+  });
 }
 
 @Injectable()
@@ -52,6 +65,10 @@ export class MailService {
         },
       });
       this.logger.log(`Initialized SMTP mail transport for host: ${smtpHost}:${String(port)}`);
+    } else if (this.config.get<string>("NODE_ENV") === "production") {
+      // Fail fast: silently running auth flows without email delivery in
+      // production means password resets go nowhere while users wait.
+      throw new Error("SMTP_HOST/SMTP_USER/SMTP_PASS must be configured in production");
     } else {
       this.logger.log(
         "No SMTP credentials configured. Running MailService in Console Logger mode.",
@@ -70,7 +87,7 @@ export class MailService {
       });
       this.logger.log(`Email delivered via SMTP: "${options.subject}" to ${options.to}`);
     } else {
-      this.logger.log(options.devLogSummary);
+      this.logger.log(redactSecrets(options.devLogSummary));
     }
   }
 

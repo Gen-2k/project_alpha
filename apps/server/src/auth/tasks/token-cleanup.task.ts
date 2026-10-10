@@ -14,6 +14,7 @@ export class TokenCleanupTask {
     tokensDeleted: number;
     unverifiedUsersDeleted: number;
     verificationTokensDeleted: number;
+    passwordResetTokensDeleted: number;
   }> {
     const tokensResult = await this.authService.cleanupExpiredTokens();
     if (tokensResult.deleted > 0) {
@@ -36,10 +37,18 @@ export class TokenCleanupTask {
       );
     }
 
+    const passwordResetResult = await this.authService.cleanupExpiredPasswordResetTokens();
+    if (passwordResetResult.deleted > 0) {
+      this.logger.log(
+        `Cleaned up ${String(passwordResetResult.deleted)} expired password reset tokens.`,
+      );
+    }
+
     return {
       tokensDeleted: tokensResult.deleted,
       unverifiedUsersDeleted: unverifiedResult.deleted,
       verificationTokensDeleted: verificationTokensResult.deleted,
+      passwordResetTokensDeleted: passwordResetResult.deleted,
     };
   }
 }

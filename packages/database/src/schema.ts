@@ -28,7 +28,10 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
 });
 
 // One row per issued refresh token, storing only its SHA-256 hash (bcrypt
@@ -123,7 +126,10 @@ export const organizations = pgTable(
     slug: varchar("slug", { length: 64 }).notNull().unique(),
     planTier: varchar("plan_tier", { length: 32 }).default("free").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
   },
   (table) => [uniqueIndex("organizations_slug_idx").on(table.slug)],
 );
@@ -143,7 +149,10 @@ export const organizationMembers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     role: organizationRoleEnum("role").default("developer").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
   },
   (table) => [
     uniqueIndex("organization_members_org_user_idx").on(table.organizationId, table.userId),
@@ -171,7 +180,10 @@ export const organizationInvitations = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
   },
   (table) => [
     uniqueIndex("org_invitations_token_hash_idx").on(table.tokenHash),
@@ -194,7 +206,10 @@ export const products = pgTable(
     slug: varchar("slug", { length: 64 }).notNull(),
     description: text("description"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
   },
   (table) => [
     uniqueIndex("products_org_slug_idx").on(table.organizationId, table.slug),
@@ -220,7 +235,10 @@ export const projects = pgTable(
     sourceLanguage: varchar("source_language", { length: 35 }).default("en-US").notNull(),
     targetLanguages: jsonb("target_languages").$type<string[]>().default([]).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
   },
   (table) => [
     uniqueIndex("projects_org_slug_idx").on(table.organizationId, table.slug),

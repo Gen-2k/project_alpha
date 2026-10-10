@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { Db } from "@repo/database/client";
 import { DB } from "@repo/database/client";
 import { sql } from "drizzle-orm";
@@ -24,14 +25,22 @@ export interface HealthStatus {
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
+  private readonly version: string;
 
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Optional() configService?: ConfigService,
+  ) {
+    // Optional so unit tests can construct with only a DB stub; in the app
+    // ConfigModule is global and always provides the validated APP_VERSION.
+    this.version = configService?.get<string>("APP_VERSION") ?? "0.0.0";
+  }
 
   liveness(): LivenessStatus {
     return {
       status: "ok",
       uptimeSeconds: Math.floor(process.uptime()),
-      version: "0.0.0",
+      version: this.version,
     };
   }
 
@@ -57,7 +66,7 @@ export class HealthService {
       return {
         status: "ok",
         uptimeSeconds: Math.floor(process.uptime()),
-        version: "0.0.0",
+        version: this.version,
         database: "up",
       };
     } catch (err) {
@@ -65,7 +74,7 @@ export class HealthService {
       return {
         status: "degraded",
         uptimeSeconds: Math.floor(process.uptime()),
-        version: "0.0.0",
+        version: this.version,
         database: "down",
       };
     }

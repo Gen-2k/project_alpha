@@ -159,6 +159,9 @@ export function normalizeEmail(email: string, enabled = false): string {
   }
 
   if (domain === "gmail.com") {
+    // [0] types as string|undefined under noUncheckedIndexedAccess, so the
+    // fallback stays for the type system even though split() never yields an
+    // empty array at runtime (that side is uncoverable by construction).
     const withoutPlus = localPart.split("+")[0] ?? "";
     const withoutDots = withoutPlus.replace(/\./g, "");
     return `${withoutDots}@${domain}`;

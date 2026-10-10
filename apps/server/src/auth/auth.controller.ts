@@ -111,7 +111,9 @@ export class AuthController {
   @ApiOperation({
     summary: "Log in with email and password",
     description:
-      "Verifies user credentials, sets an HttpOnly refresh cookie, and returns access and refresh tokens.",
+      "Verifies user credentials, sets an HttpOnly refresh cookie, and returns access and refresh tokens. " +
+      "First issuance must deliver the refresh token in JSON for CLI clients; browser apps should " +
+      "keep using the cookie from here on (see POST /auth/refresh) and drop the JSON copy.",
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({ status: 200, type: AuthTokensResponseDto, description: "Tokens issued." })
@@ -129,6 +131,7 @@ export class AuthController {
   ) {
     const result = await this.authService.login(dto, extractRequestMetadata(req));
     this.setRefreshTokenCookie(res, result.refreshToken);
+    this.setNoStore(res);
     return result;
   }
 
@@ -139,13 +142,18 @@ export class AuthController {
   @ApiOperation({
     summary: "Rotate a refresh token into a fresh pair",
     description:
-      "Rotates the refresh token supplied via HttpOnly cookie or JSON request body into a new token pair and sets a fresh cookie.",
+      "Two transports, one rotation. Browsers send the HttpOnly cookie: the fresh " +
+      "refresh token is returned ONLY as a new cookie and is never exposed to page " +
+      "JavaScript (XSS cannot steal a 7-day credential it cannot read). CLI and other " +
+      "non-browser clients send { refreshToken } in the body and receive the full " +
+      "pair in JSON, which they must store like a password. The short-lived access " +
+      "token is returned in JSON in both cases by design (15-minute bearer).",
   })
   @ApiBody({ type: RefreshDto, required: false })
   @ApiResponse({
     status: 200,
     type: AuthTokensResponseDto,
-    description: "Fresh token pair issued.",
+    description: "Fresh tokens. Cookie flow omits refreshToken from the JSON body.",
   })
   @ApiResponse({
     status: 401,
@@ -158,7 +166,7 @@ export class AuthController {
     description: "Too many requests; rate limit exceeded.",
   })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const token = this.extractRefreshToken(req);
+    const { token, fromCookie } = this.extractRefreshToken(req);
     if (!token) {
       throw new UnauthorizedException(
         "A refresh token must be provided via cookie or request body",
@@ -170,6 +178,15 @@ export class AuthController {
       extractRequestMetadata(req),
     );
     this.setRefreshTokenCookie(res, result.refreshToken);
+    this.setNoStore(res);
+    if (fromCookie) {
+      // Browser flow: the fresh refresh token already travels as an HttpOnly
+      // cookie — echoing it into JSON would hand a 7-day credential to any
+      // injected script. Explicit allowlist (not delete-rest): anything the
+      // service adds later stays out of browser JSON until reviewed.
+      // CLI/body flow below still needs the full pair in JSON.
+      return { accessToken: result.accessToken, user: result.user };
+    }
     return result;
   }
 
@@ -190,7 +207,7 @@ export class AuthController {
     description: "Too many requests; rate limit exceeded.",
   })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const token = this.extractRefreshToken(req);
+    const { token } = this.extractRefreshToken(req);
     clearRefreshTokenCookie(res, this.cookieSecure);
     if (token) {
       return this.authService.logout({ refreshToken: token });
@@ -402,7 +419,7 @@ export class AuthController {
   })
   @UsePipes(new ZodValidationPipe(updatePasswordSchema))
   updatePassword(@Body() dto: UpdatePasswordDto, @Req() req: AuthenticatedRequest) {
-    const currentRefreshToken = this.extractRefreshToken(req);
+    const { token: currentRefreshToken } = this.extractRefreshToken(req);
     return this.authService.updatePassword(req.user.sub, dto, currentRefreshToken);
   }
 
@@ -410,15 +427,28 @@ export class AuthController {
     setRefreshTokenCookie(res, token, this.authService.refreshExpiresInMs, this.cookieSecure);
   }
 
-  private extractRefreshToken(req: Request): string | undefined {
+  // RFC 6749 §5.1: responses carrying tokens must never be stored by
+  // intermediaries or browser caches. Every endpoint below that returns
+  // tokens calls this before returning.
+  private setNoStore(res: Response): void {
+    res.setHeader("Cache-Control", "no-store, no-cache");
+    res.setHeader("Pragma", "no-cache");
+  }
+
+  // Cookie-first hybrid: the HttpOnly cookie wins whenever present (browsers
+  // always send it; page JavaScript can never forge it). The JSON body exists
+  // solely for non-browser clients with no cookie jar (CLI, scripts). When
+  // both carry different values the cookie is authoritative — a body token
+  // that disagrees with the browser session is never honored.
+  private extractRefreshToken(req: Request): { token?: string; fromCookie: boolean } {
     const cookieToken = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE_NAME];
     if (typeof cookieToken === "string" && cookieToken.length > 0) {
-      return cookieToken;
+      return { token: cookieToken, fromCookie: true };
     }
     const bodyToken = (req.body as Record<string, unknown> | undefined)?.refreshToken;
     if (typeof bodyToken === "string" && bodyToken.length > 0) {
-      return bodyToken;
+      return { token: bodyToken, fromCookie: false };
     }
-    return undefined;
+    return { token: undefined, fromCookie: false };
   }
 }

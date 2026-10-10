@@ -25,7 +25,13 @@ export async function runValidate(options: ValidateCommandOptions = {}): Promise
   try {
     files = await readdir(localesDir);
   } catch {
+    // Fail closed in CI: validating nothing must not read as "all valid".
+    // Locally this stays a skip — the developer may not have locales yet.
     logger.warn(`Locales directory ${localesDir} does not exist.`);
+    if (options.ci) {
+      process.exitCode = 1;
+      return false;
+    }
     return true;
   }
 

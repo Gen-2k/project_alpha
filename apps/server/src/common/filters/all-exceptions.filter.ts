@@ -68,6 +68,65 @@ function deriveErrorCode(status: number, message: string, hasIssues: boolean): s
   }
 }
 
+interface HttpErrorDetails {
+  status: number;
+  error: string;
+  message: string;
+  code: string;
+  issues?: ApiErrorIssue[];
+}
+
+function normalizeIssues(value: unknown): ApiErrorIssue[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parsed = (value as unknown[]).filter(
+    (item): item is ApiErrorIssue =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as Record<string, unknown>).path === "string" &&
+      typeof (item as Record<string, unknown>).message === "string",
+  );
+  return parsed.map((item) => ({ path: item.path, message: item.message }));
+}
+
+function extractHttpDetails(exception: HttpException): HttpErrorDetails {
+  const status = exception.getStatus();
+  const res = exception.getResponse();
+
+  if (typeof res === "string") {
+    return {
+      status,
+      error: getHttpErrorName(status),
+      message: res,
+      code: deriveErrorCode(status, res, false),
+    };
+  }
+
+  const record = res as Record<string, unknown>;
+  let message: string;
+  if (typeof record.message === "string") {
+    message = record.message;
+  } else if (Array.isArray(record.message)) {
+    message = record.message.join("; ");
+  } else {
+    message = exception.message;
+  }
+
+  const error = typeof record.error === "string" ? record.error : getHttpErrorName(status);
+  const code = typeof record.code === "string" ? record.code : "INTERNAL_SERVER_ERROR";
+  const issues = normalizeIssues(record.issues);
+  const resolvedCode =
+    code === "INTERNAL_SERVER_ERROR"
+      ? deriveErrorCode(status, message, Boolean(issues && issues.length > 0))
+      : code;
+  return { status, error, message, code: resolvedCode, ...(issues ? { issues } : {}) };
+}
+
+function resolveRequestId(request: RequestWithId): string | undefined {
+  if (typeof request.id === "string") return request.id;
+  const rawHeader = request.headers[REQUEST_ID_HEADER];
+  return typeof rawHeader === "string" ? rawHeader : undefined;
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
@@ -84,76 +143,33 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return;
     }
 
-    let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let error = "Internal Server Error";
-    let message = "An unexpected error occurred";
-    let code = "INTERNAL_SERVER_ERROR";
-    let issues: ApiErrorIssue[] | undefined;
+    const details: HttpErrorDetails =
+      exception instanceof HttpException
+        ? extractHttpDetails(exception)
+        : {
+            status: HttpStatus.INTERNAL_SERVER_ERROR,
+            error: "Internal Server Error",
+            message: "An unexpected error occurred",
+            code: "INTERNAL_SERVER_ERROR",
+          };
+    const { status, error, message, code, issues } = details;
 
-    if (exception instanceof HttpException) {
-      status = exception.getStatus();
-      const res = exception.getResponse();
-
-      if (typeof res === "string") {
-        message = res;
-        error = getHttpErrorName(status);
-      } else {
-        const record = res as Record<string, unknown>;
-
-        if (typeof record.message === "string") {
-          message = record.message;
-        } else if (Array.isArray(record.message)) {
-          message = record.message.join("; ");
-        } else {
-          message = exception.message;
-        }
-
-        if (typeof record.error === "string") {
-          error = record.error;
-        } else {
-          error = getHttpErrorName(status);
-        }
-
-        if (typeof record.code === "string") {
-          code = record.code;
-        }
-
-        if (Array.isArray(record.issues)) {
-          const parsed = (record.issues as unknown[]).filter(
-            (item): item is ApiErrorIssue =>
-              typeof item === "object" &&
-              item !== null &&
-              typeof (item as Record<string, unknown>).path === "string" &&
-              typeof (item as Record<string, unknown>).message === "string",
-          );
-          issues = parsed.map((item) => ({ path: item.path, message: item.message }));
-        }
-      }
-
-      if (code === "INTERNAL_SERVER_ERROR") {
-        code = deriveErrorCode(status, message, Boolean(issues && issues.length > 0));
-      }
-
-      if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-        const reqId = typeof request.id === "string" ? request.id : "unknown";
-        this.logger.error(
-          `[${reqId}] HTTP ${String(status)} on ${request.method} ${requestPathname(request.url)}: ${message}`,
-          exception instanceof Error ? exception.stack : undefined,
-        );
-      }
-    } else {
-      const err = exception instanceof Error ? exception : new Error(String(exception));
-      const reqId = typeof request.id === "string" ? request.id : "unknown";
-      this.logger.error(
-        `[${reqId}] Unhandled exception on ${request.method} ${requestPathname(request.url)}: ${err.message}`,
-        err.stack,
-      );
+    const err = exception instanceof Error ? exception : new Error(String(exception));
+    const reqId = typeof request.id === "string" ? request.id : "unknown";
+    // Typed as number so the enum comparison stays numeric (getStatus()
+    // returns number, not the enum type the unsafe-enum rule wants).
+    const serverErrorThreshold: number = HttpStatus.INTERNAL_SERVER_ERROR;
+    if (status >= serverErrorThreshold) {
+      // Non-HTTP failures keep the legacy "Unhandled exception" wording with
+      // the raw message; HTTP 5xx keep "HTTP <status>" with the safe message.
+      const logMessage =
+        exception instanceof HttpException
+          ? `[${reqId}] HTTP ${String(status)} on ${request.method} ${requestPathname(request.url)}: ${message}`
+          : `[${reqId}] Unhandled exception on ${request.method} ${requestPathname(request.url)}: ${err.message}`;
+      this.logger.error(logMessage, err.stack);
     }
 
-    const rawHeader = request.headers[REQUEST_ID_HEADER];
-    const headerRequestId = typeof rawHeader === "string" ? rawHeader : undefined;
-    const requestId = typeof request.id === "string" ? request.id : headerRequestId;
-
+    const requestId = resolveRequestId(request);
     const body: ApiErrorResponse = {
       statusCode: status,
       error,

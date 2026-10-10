@@ -1,0 +1,12 @@
+# Keep the image build context small: sources + manifests only.
+node_modules
+**/dist
+**/build
+**/coverage
+.turbo
+.git
+.env
+.env.local
+apps/*/.env
+postman
+docs

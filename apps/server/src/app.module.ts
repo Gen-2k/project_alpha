@@ -30,6 +30,9 @@ import { UsersModule } from "./users/users.module.js";
       useFactory: createLoggerConfig,
     }),
     ScheduleModule.forRoot(),
+    // In-memory store: correct for a single instance only. Do NOT run a
+    // second replica until this moves to Redis-backed storage — limits
+    // reset per instance, so 2 replicas ≈ 2x the intended rate.
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

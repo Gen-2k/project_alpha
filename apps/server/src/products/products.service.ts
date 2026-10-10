@@ -28,17 +28,7 @@ export class ProductsService {
     const lowerName = trimmed.toLowerCase();
 
     // 1. Case-insensitive lookup to prevent duplicate fragmentation
-    const [existing] = await this.db
-      .select(safeProductColumns)
-      .from(products)
-      .where(
-        and(
-          eq(products.organizationId, organizationId),
-          sql`lower(${products.name}) = ${lowerName}`,
-        ),
-      )
-      .limit(1);
-
+    const existing = await this.findByLowerName(organizationId, lowerName);
     if (existing) {
       return existing;
     }
@@ -62,7 +52,13 @@ export class ProductsService {
       return created;
     } catch (error) {
       if (isUniqueViolation(error)) {
-        // In the rare event of a slug collision with an existing differently-named product, append short hex
+        // A concurrent insert may have won the race between our lookup and
+        // our insert: re-check first, otherwise two same-named products
+        // fragment. Only a genuinely different name gets a suffixed slug.
+        const raced = await this.findByLowerName(organizationId, lowerName);
+        if (raced) {
+          return raced;
+        }
         slug = `${slug}-${randomBytes(2).toString("hex")}`;
         const [retried] = await this.db
           .insert(products)
@@ -81,6 +77,23 @@ export class ProductsService {
       }
       throw error;
     }
+  }
+
+  private async findByLowerName(
+    organizationId: string,
+    lowerName: string,
+  ): Promise<ProductDto | undefined> {
+    const [row] = await this.db
+      .select(safeProductColumns)
+      .from(products)
+      .where(
+        and(
+          eq(products.organizationId, organizationId),
+          sql`lower(${products.name}) = ${lowerName}`,
+        ),
+      )
+      .limit(1);
+    return row;
   }
 
   async create(organizationId: string, input: CreateProductDto): Promise<ProductDto> {

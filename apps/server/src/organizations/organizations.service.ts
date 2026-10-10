@@ -120,6 +120,28 @@ export class OrganizationsService {
     return row;
   }
 
+  // Defense in depth: the `GET :id` route is guard-protected today, but any
+  // future caller of plain `findById` without the guard would leak
+  // cross-tenant rows. Member-scoped reads go through here so the membership
+  // check lives in the query itself, not just in the route layer.
+  async findByIdForMember(
+    organizationId: string,
+    userId: string,
+  ): Promise<OrganizationDto | undefined> {
+    const [row] = await this.db
+      .select(safeOrgColumns)
+      .from(organizations)
+      .innerJoin(
+        organizationMembers,
+        and(
+          eq(organizationMembers.organizationId, organizations.id),
+          eq(organizationMembers.userId, userId),
+        ),
+      )
+      .where(eq(organizations.id, organizationId));
+    return row;
+  }
+
   async getMembership(
     organizationId: string,
     userId: string,

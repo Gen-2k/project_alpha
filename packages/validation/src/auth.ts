@@ -132,7 +132,10 @@ export const updatePasswordSchema = z
       .string({ error: "Current password is required" })
       .min(1, "Current password is required"),
     newPassword: passwordSchema,
-    refreshToken: z.string().optional(),
+    // NOTE: no refreshToken field by design. The current session is taken
+    // from the HttpOnly cookie (or body fallback) by the controller and
+    // passed as a service argument — a body field here would be silently
+    // ignored input surface, so it must not exist.
   })
   .refine((data) => data.currentPassword !== data.newPassword, {
     message: "New password must be different from your current password",
