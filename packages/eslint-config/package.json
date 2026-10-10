@@ -9,7 +9,7 @@
     "./node": "./node.js"
   },
   "peerDependencies": {
-    "eslint": "^9.34.0",
+    "eslint": "catalog:",
     "typescript": "catalog:"
   },
   "scripts": {

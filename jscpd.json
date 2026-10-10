@@ -4,6 +4,7 @@
   "minLines": 5,
   "minTokens": 50,
   "format": ["typescript"],
+  "pattern": "{apps/server,packages/validation,packages/database}/src/**/*.ts",
   "ignore": [
     "**/node_modules/**",
     "**/dist/**",

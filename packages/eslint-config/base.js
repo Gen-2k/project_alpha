@@ -161,7 +161,7 @@ export default defineConfig(
   // length there is coverage, not slop. Duplication in specs is still
   // caught by jscpd; complexity still applies.
   {
-    files: ["**/*.spec.ts"],
+    files: ["**/*.spec.ts", "**/*.test.ts"],
     rules: {
       "max-lines-per-function": "off",
     },
