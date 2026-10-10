@@ -2,6 +2,10 @@
 # still applies (minimumReleaseAge in .npmrc delays brand-new releases;
 # --frozen-lockfile in CI fails if a PR forgets the lockfile). Review each PR
 # like any other: check `pnpm check` is green, then merge.
+#
+# Groups keep version-lockstep families in ONE PR: all @nestjs/* must move
+# together (single catalog range), same for @babel/* and @commitlint/*.
+# Dependabot edits the pnpm catalog in pnpm-workspace.yaml directly.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -11,6 +15,13 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     labels: [deps]
+    groups:
+      nestjs:
+        patterns: ["@nestjs/*"]
+      babel:
+        patterns: ["@babel/*"]
+      commitlint:
+        patterns: ["@commitlint/*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
