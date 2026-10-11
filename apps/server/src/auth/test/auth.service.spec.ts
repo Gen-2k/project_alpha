@@ -593,6 +593,14 @@ describe("AuthService", () => {
       expect(calls.deleted).toBe(1);
     });
 
+    it("should gracefully return revoked true when target session does not exist", async () => {
+      const { service, calls } = setup();
+      await expect(service.revokeSession(safeUser.id, "non-existent-session")).resolves.toEqual({
+        revoked: true,
+      });
+      expect(calls.deleted).toBe(0);
+    });
+
     it("should revoke only the replayed token family leaving other device families intact", async () => {
       const { service, findById, findByEmailWithHash, selectRows, calls } = setup();
       findById.mockResolvedValue(safeUser);
@@ -763,6 +771,25 @@ describe("AuthService", () => {
       });
 
       expect(result.message).toContain("Your password has been successfully reset");
+    });
+
+    it("should still succeed when user is not found during post-reset notification", async () => {
+      const { service, selectRows, findById, mail } = setup();
+      selectRows.push({
+        id: "reset-token-id",
+        userId: safeUser.id,
+        tokenHash: "any-hash",
+        expiresAt: new Date(Date.now() + 60000),
+      });
+      findById.mockResolvedValueOnce(undefined);
+
+      const result = await service.resetPassword({
+        token: "plain-token-string",
+        newPassword: "fresh-new-password-123",
+      });
+
+      expect(result.message).toContain("Your password has been successfully reset");
+      expect(mail.sendPasswordChangedNotification).not.toHaveBeenCalled();
     });
   });
 

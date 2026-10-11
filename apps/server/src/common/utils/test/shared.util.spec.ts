@@ -22,7 +22,10 @@ describe("shared.util", () => {
 
     it("should return root for non-string or empty input", () => {
       expect(requestPathname(undefined)).toBe("/");
+      expect(requestPathname(null)).toBe("/");
+      expect(requestPathname(123)).toBe("/");
       expect(requestPathname("")).toBe("/");
+      expect(requestPathname("?token=123")).toBe("/");
     });
   });
 

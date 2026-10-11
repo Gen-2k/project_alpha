@@ -639,6 +639,18 @@ describe("OrganizationsService", () => {
       await expect(service.removeMember("org-1", "member-1")).rejects.toThrow(BadRequestException);
     });
 
+    it("should allow removing an owner when multiple owners exist", async () => {
+      const secondOwner = { ...mockMember, id: "member-2", userId: "user-2" };
+      const { db } = createMockDb({
+        selectRowsQueue: [[mockMember], [mockMember, secondOwner]],
+      });
+      const service = new OrganizationsService(db, usersService);
+
+      await expect(
+        service.removeMember("org-1", "member-1", "owner", true),
+      ).resolves.toBeUndefined();
+    });
+
     it("should throw NotFoundException if member does not exist", async () => {
       const { db } = createMockDb({ selectRows: [] });
       const service = new OrganizationsService(db, usersService);
@@ -698,6 +710,37 @@ describe("OrganizationsService", () => {
           role: "developer",
         }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it("should allow inviting an existing platform user who is not a member of the organization", async () => {
+      const localUsersService = createMockUsersService({
+        findByEmail: () => Promise.resolve(mockSafeUser),
+        findById: () => Promise.resolve(mockSafeUser),
+      });
+
+      const { db, insertedItems } = createMockDb({
+        selectRowsQueue: [
+          [mockOrg], // findById org
+          [], // existingMember check (not a member)
+          [], // existingInvite check (not yet invited)
+        ],
+        insertRows: [mockInvitation],
+      });
+
+      const sendInviteEmail = vi.fn(() => Promise.resolve());
+      const mailService = {
+        sendOrganizationInvitationEmail: sendInviteEmail,
+      } as unknown as MailService;
+
+      const service = new OrganizationsService(db, localUsersService, mailService);
+
+      const result = await service.createInvitation("org-1", "user-1", "owner", {
+        email: "ada@example.com",
+        role: "developer",
+      });
+
+      expect(result).toEqual(mockInvitation);
+      expect(insertedItems).toHaveLength(1);
     });
 
     it("should create a new invitation, dispatch email, and return the record", async () => {
