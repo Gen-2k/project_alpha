@@ -1,11 +1,16 @@
-import "dotenv/config";
+import { resolve } from "node:path";
 
+import dotenv from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
-// Reads DATABASE_URL from the environment (export it, or keep it in a
-// gitignored .env next to this file — drizzle-kit does not load one itself).
-// Workflow: `db:generate` after editing src/schema.ts (commits SQL to
-// drizzle/), then `db:migrate` to apply. `db:push` skips files (dev only).
+// Reads DATABASE_URL from:
+// 1. Process environment (CI/CD, Docker)
+// 2. Local packages/database/.env (if explicitly created)
+// 3. Fallback to apps/server/.env (single source of truth for local dev)
+dotenv.config();
+if (!process.env.DATABASE_URL) {
+  dotenv.config({ path: resolve(process.cwd(), "../../apps/server/.env") });
+}
 export default defineConfig({
   dialect: "postgresql",
   schema: "./src/schema.ts",
