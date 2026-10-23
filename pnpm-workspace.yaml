@@ -23,6 +23,14 @@ overrides:
   "source-map-js@<1.2.2": 1.2.2
   "vite@>=8.3.0 <8.3.3": 8.3.4
 
+# Accepted audit exception: braces <=3.0.3 has no patched release (npm's latest
+# is 3.0.3; the advisory's ">=3.0.4" was never published). It is reachable only
+# from dev tooling (knip, eslint-plugin-check-file), never from the runtime
+# image. Revisit when a patched release appears. See ADR-011.
+audit:
+  ignore:
+    - GHSA-vfj7-8cjw-p6xm
+
 # Shared version catalog (pnpm official "Catalogs" feature).
 # Each entry is the single source of truth for that dependency's range:
 # upgrading means editing one line here instead of every package.json.
