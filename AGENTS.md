@@ -80,6 +80,7 @@ pnpm clean                            # Clean dist/ and coverage/ across all pac
 
 - Base rules enforce: `complexity: 20`, `max-lines-per-function: 100`, `max-params: 7`, `max-depth: 4`.
 - Spec/test files (`**/*.spec.ts`, `**/*.test.ts`) are exempt from function length.
+- Duplication scanning (`jscpd`) covers production sources only; colocated specs/tests and `**/test/**` are excluded (ADR-010).
 - **Quarantined Debt**: `packages/cli` is temporarily exempt from structural complexity/length budgets and `jscpd` scanning until the scanner/rewriter refactor is complete.
 
 ### 3.5 Security & Data Identity
