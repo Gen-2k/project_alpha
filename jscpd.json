@@ -1,5 +1,4 @@
 {
-  "$schema": "https://github.com/kucherenko/jscpd",
   "threshold": 5,
   "minLines": 5,
   "minTokens": 50,
@@ -12,6 +11,9 @@
     "**/coverage/**",
     "**/.turbo/**",
     "**/drizzle/**",
-    "**/*.min.js"
+    "**/*.min.js",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/test/**"
   ]
 }

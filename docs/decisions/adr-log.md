@@ -17,6 +17,7 @@ This document serves as the formal decision log for **Project Alpha**, recording
 | [**ADR-007**](#adr-007-infrastructure-aligned-pricing-vs-hosted-key--seat-taxes)       | Infrastructure-Aligned Pricing vs. Hosted Key & Seat Taxes         | **APPROVED** | 2026-09-27 |
 | [**ADR-008**](#adr-008-exclusion-of-vendor-erp-and-desktop-software-from-scope)        | Exclusion of Vendor ERP and Desktop Software from Scope            | **APPROVED** | 2026-09-27 |
 | [**ADR-009**](#adr-009-decoupled-parallel-cicd-pipeline--hermetic-docker-packaging)    | Decoupled Parallel CI/CD Pipeline & Hermetic Docker Packaging      | **APPROVED** | 2026-10-10 |
+| [**ADR-010**](#adr-010-adopt-jscpd-5--exclude-test-files-from-duplication-budget)      | Adopt jscpd 5 & Exclude Test Files from Duplication Budget         | **APPROVED** | 2026-10-23 |
 
 ---
 
@@ -84,3 +85,10 @@ This document serves as the formal decision log for **Project Alpha**, recording
 - **Context:** Monolithic, sequential CI jobs caused slow feedback loops, lack of failure isolation, and missing build-stage references in `Dockerfile` that broke container compilation.
 - **Decision:** Implement a 6-job parallel CI matrix (`quality`, `typecheck`, `test`, `build`, `security`, `docker`) gated by a consolidated `ci-gate` for GitHub branch protection. Enforce Turborepo caching (`actions/cache@v4`), non-blocking PR concurrency cancellation, and hermetic BuildKit multi-stage Docker builds using `--from=build` stage references.
 - **Rationale:** Minimizes pull request feedback latency, isolates static analysis from runtime and security failures, and ensures repeatable, zero-drift production container images.
+
+### ADR-010: Adopt jscpd 5 & Exclude Test Files from Duplication Budget
+
+- **Status:** **APPROVED [DECISION]**
+- **Context:** Upgrading `jscpd` from 4.0.5 to 5.4.0 changed clone detection: the same source set reported 5.74-5.94% duplication (831-864 lines), breaching the 5% gate without any new production code. Most newly detected clones were colocated spec files, where arrange-act-assert and table-driven cases are intentionally similar.
+- **Decision:** Adopt `jscpd@5.4.0`, drop the unsupported `$schema` property from `jscpd.json`, and exclude `**/*.spec.ts`, `**/*.test.ts`, and `**/test/**` from duplication scanning. Keep the 5% threshold for production sources; the measured budget is 2.41% (171 lines, 18 clones across 71 files).
+- **Rationale:** The duplication budget exists to catch copy-paste in shippable code, not to penalize conventional test structure. Excluding tests restores a meaningful signal while keeping the production threshold strict; CI still enforces the gate via `pnpm jscpd` inside `pnpm check`.
