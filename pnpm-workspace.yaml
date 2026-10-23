@@ -8,6 +8,21 @@ allowBuilds:
   "@scarf/scarf": false
   esbuild: true
 
+# Transitive security pins (Dependabot alerts).
+# These packages are never direct dependencies, so a catalog entry cannot
+# reach them:
+#   - vite comes in as auto-installed peer of vitest; 8.3.3+ carries the
+#     launch-editor fixes (GHSA-587h-7wmj-h5pm, GHSA-698v-4r3x-3vcv,
+#     GHSA-r825-w8mm-5pxw). 8.3.4 is the newest release past minimumReleaseAge.
+#   - source-map-js 1.2.2 fixes GHSA-68fv-2mgg-jv7q via postcss/magicast.
+#   - esbuild 0.18.20 is pinned exactly by @esbuild-kit/core-utils (drizzle-kit);
+#     0.25.12 is already in the tree through drizzle-kit itself and fixes
+#     GHSA-67mh-4wv8-2f99.
+overrides:
+  "esbuild@<0.25.0": 0.25.12
+  "source-map-js@<1.2.2": 1.2.2
+  "vite@>=8.3.0 <8.3.3": 8.3.4
+
 # Shared version catalog (pnpm official "Catalogs" feature).
 # Each entry is the single source of truth for that dependency's range:
 # upgrading means editing one line here instead of every package.json.
