@@ -18,6 +18,7 @@ This document serves as the formal decision log for **Project Alpha**, recording
 | [**ADR-008**](#adr-008-exclusion-of-vendor-erp-and-desktop-software-from-scope)        | Exclusion of Vendor ERP and Desktop Software from Scope            | **APPROVED** | 2026-09-27 |
 | [**ADR-009**](#adr-009-decoupled-parallel-cicd-pipeline--hermetic-docker-packaging)    | Decoupled Parallel CI/CD Pipeline & Hermetic Docker Packaging      | **APPROVED** | 2026-10-10 |
 | [**ADR-010**](#adr-010-adopt-jscpd-5--exclude-test-files-from-duplication-budget)      | Adopt jscpd 5 & Exclude Test Files from Duplication Budget         | **APPROVED** | 2026-10-23 |
+| [**ADR-011**](#adr-011-accept-the-braces-advisory-as-dev-only-tooling-risk)            | Accept the `braces` Advisory as Dev-Only Tooling Risk              | **APPROVED** | 2026-10-23 |
 
 ---
 
@@ -92,3 +93,10 @@ This document serves as the formal decision log for **Project Alpha**, recording
 - **Context:** Upgrading `jscpd` from 4.0.5 to 5.4.0 changed clone detection: the same source set reported 5.74-5.94% duplication (831-864 lines), breaching the 5% gate without any new production code. Most newly detected clones were colocated spec files, where arrange-act-assert and table-driven cases are intentionally similar.
 - **Decision:** Adopt `jscpd@5.4.0`, drop the unsupported `$schema` property from `jscpd.json`, and exclude `**/*.spec.ts`, `**/*.test.ts`, and `**/test/**` from duplication scanning. Keep the 5% threshold for production sources; the measured budget is 2.41% (171 lines, 18 clones across 71 files).
 - **Rationale:** The duplication budget exists to catch copy-paste in shippable code, not to penalize conventional test structure. Excluding tests restores a meaningful signal while keeping the production threshold strict; CI still enforces the gate via `pnpm jscpd` inside `pnpm check`.
+
+### ADR-011: Accept the `braces` Advisory as Dev-Only Tooling Risk
+
+- **Status:** **APPROVED [DECISION]**
+- **Context:** `pnpm audit --audit-level=high` reports `braces <=3.0.3` (GHSA-vfj7-8cjw-p6xm, high). No patched release exists: npm's latest version is 3.0.3, GitHub's advisory API reports `first_patched_version: null`, and the ">=3.0.4" range shown by `pnpm audit` refers to a version that was never published. The advisory is disputed upstream (micromatch/braces#84); a related CVE (CVE-2026-97058) has already been rejected, and the maintainer argues exploitation requires attacker-controlled glob patterns. In this repo `braces` is reachable only through `knip` and `eslint-plugin-check-file` — dev-only tools that consume repository-controlled glob patterns, never user input — and it is absent from the production image (`pnpm install --prod`).
+- **Decision:** Keep `braces@3.0.3` and add a scoped `audit.ignore` entry for `GHSA-vfj7-8cjw-p6xm` in `pnpm-workspace.yaml`. Do not fork the package or override to an unreleased version. CI continues to gate at `pnpm audit --audit-level=critical`; this exception only removes a dev-only high finding from audit output.
+- **Rationale:** With no installable fix, the alternatives are to accept a non-runtime risk, ship a fork, or keep failing local high-severity audits. A documented exception is the least risky: it is visible in config and here, scoped to one GHSA, and must be revisited if a patched release appears or the advisory is withdrawn.
